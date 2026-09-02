@@ -1,0 +1,12 @@
+/sw.js
+  Cache-Control: no-cache
+/schedule.js
+  Cache-Control: no-cache
+/index.html
+  Cache-Control: no-cache
+/icons/*
+  Cache-Control: public, max-age=604800
+/styles.css
+  Cache-Control: no-cache
+/app.js
+  Cache-Control: no-cache

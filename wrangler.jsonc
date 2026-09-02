@@ -1,0 +1,12 @@
+{
+  "name": "schedule-cs2411",
+  "compatibility_date": "2026-09-02",
+  "assets": {
+    "directory": "./public",
+    "not_found_handling": "single-page-application"
+  },
+  "routes": [
+    { "pattern": "schedulecs2411.zhengisbay.com", "custom_domain": true }
+  ],
+  "observability": { "enabled": true }
+}
