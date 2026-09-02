@@ -2,14 +2,14 @@
 <html lang="ru">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Расписание CS-2411</title>
-<meta name="description" content="Расписание занятий группы CS-2411 — календарь на неделю, кабинеты, преподаватели.">
+<meta name="description" content="Расписание группы CS-2411: пары, кабинеты, преподаватели.">
 <link rel="manifest" href="manifest.webmanifest">
-<meta name="theme-color" content="#f2f4f9">
+<meta name="theme-color" content="#f6f6f7">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="CS-2411">
 <link rel="apple-touch-icon" href="icons/icon-180.png">
 <link rel="icon" href="icons/icon-192.png">
@@ -18,48 +18,49 @@
 <body>
 
 <div class="app">
-  <header class="topbar">
-    <div class="brand">
-      <div class="mark" id="mark">CS</div>
-      <div>
-        <h1 id="gname">Расписание</h1>
-        <p id="gmeta"></p>
-      </div>
+  <header class="top">
+    <div class="ttl">
+      <h1 id="gname">Расписание</h1>
+      <p id="gmeta"></p>
     </div>
-    <div class="tools">
-      <button class="pill is-today" id="todayBtn" title="Перейти к сегодняшнему дню">
-        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round">
-          <rect x="3.5" y="5" width="17" height="15.5" rx="3"/><path d="M3.5 10h17M8 3v4M16 3v4"/>
-        </svg>
-        <span class="tt">Сегодня</span>
-      </button>
-      <button class="icon-btn" id="themeBtn" aria-label="Сменить тему"></button>
+    <div class="acts">
+      <button class="btn" id="todayBtn" title="К сегодняшнему дню"><span class="tt">Сегодня</span></button>
+      <button class="btn ico" id="themeBtn" aria-label="Сменить тему"></button>
     </div>
   </header>
 
-  <div class="status" id="status"></div>
+  <div class="status" id="status" hidden></div>
   <div class="legend" id="legend"></div>
 
-  <!-- десктоп: вся неделя сразу -->
-  <section class="week" id="week" aria-label="Календарь недели">
-    <div class="week-head" id="weekHead"></div>
-    <div class="week-body">
-      <div class="gutter" id="gutter"></div>
-      <div class="cols" id="cols"></div>
+  <!-- ===== компьютер: лента дней с прокруткой по неделям ===== -->
+  <section class="week" aria-label="Календарь">
+    <div class="week-bar">
+      <div class="wb-left">
+        <span class="wb-range" id="weekLabel"></span>
+        <span class="wb-hint" id="weekHint"></span>
+      </div>
+      <div class="wb-nav">
+        <button class="btn ico sm" id="prevWeek" aria-label="Предыдущая неделя">
+          <svg viewBox="0 0 24 24"><path d="M14.5 5.5 8 12l6.5 6.5"/></svg></button>
+        <button class="btn ico sm" id="nextWeek" aria-label="Следующая неделя">
+          <svg viewBox="0 0 24 24"><path d="M9.5 5.5 16 12l-6.5 6.5"/></svg></button>
+      </div>
     </div>
+    <div class="scroller" id="scroller"><div class="grid" id="grid"></div></div>
   </section>
 
-  <!-- телефон: дни листаются влево-вправо -->
-  <section class="mobile" id="mobile">
-    <nav class="daytabs" id="dayTabs" role="tablist" aria-label="Дни недели"></nav>
+  <!-- ===== телефон: дни листаются вбок ===== -->
+  <section class="mob">
+    <div class="mob-bar"><span id="mWeek"></span></div>
+    <nav class="tabs" id="dayTabs" role="tablist" aria-label="Дни недели"></nav>
     <div class="pager" id="pager"></div>
   </section>
 
   <footer id="foot"></footer>
 </div>
 
-<div class="backdrop" id="backdrop"></div>
-<div class="sheet" id="sheet" role="dialog" aria-modal="true"></div>
+<div class="veil" id="veil"></div>
+<div class="card" id="card" role="dialog" aria-modal="true"></div>
 
 <script src="schedule.js"></script>
 <script src="app.js"></script>

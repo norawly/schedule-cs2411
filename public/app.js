@@ -1,409 +1,457 @@
 (function(){
 "use strict";
 
-/* ---------- константы ---------- */
-var S      = window.SCHEDULE || {days:{}, subjects:{}};
-var KEYS   = ["mon","tue","wed","thu","fri","sat","sun"];
-var SHORT  = {mon:"Пн",tue:"Вт",wed:"Ср",thu:"Чт",fri:"Пт",sat:"Сб",sun:"Вс"};
-var FULL   = {mon:"Понедельник",tue:"Вторник",wed:"Среда",thu:"Четверг",fri:"Пятница",sat:"Суббота",sun:"Воскресенье"};
-var TYPE   = {lecture:"Лекция",practice:"Практика",lab:"Лаб. работа",seminar:"Семинар"};
+/* ============ данные ============ */
+var S     = window.SCHEDULE || {days:{}, subjects:{}};
+var KEYS  = ["mon","tue","wed","thu","fri","sat"];        /* воскресенья в расписании нет */
+var SHORT = {mon:"Пн",tue:"Вт",wed:"Ср",thu:"Чт",fri:"Пт",sat:"Сб"};
+var FULL  = {mon:"Понедельник",tue:"Вторник",wed:"Среда",thu:"Четверг",fri:"Пятница",sat:"Суббота"};
+var TYPE  = {lecture:"Лекция",practice:"Практика",lab:"Лаб. работа",seminar:"Семинар"};
+var MON   = ["янв","фев","мар","апр","мая","июн","июл","авг","сен","окт","ноя","дек"];
+var MONF  = ["января","февраля","марта","апреля","мая","июня","июля","августа","сентября","октября","ноября","декабря"];
 
-/* тип занятия → цвет. Онлайн-пары — отдельные цвета и пунктирная рамка */
 var KIND = {
-  "lecture":         {c:"#4f6ef7", label:"Лекция"},
-  "practice":        {c:"#10b981", label:"Практика"},
-  "lecture-online":  {c:"#a855f7", label:"Лекция · онлайн"},
-  "practice-online": {c:"#f59e0b", label:"Практика · онлайн"}
+  "lecture":         {c:"#3b68e0", label:"Лекция"},
+  "practice":        {c:"#1a9e5f", label:"Практика"},
+  "lecture-online":  {c:"#7c5cf0", label:"Лекция онлайн"},
+  "practice-online": {c:"#c97a10", label:"Практика онлайн"}
 };
-var PX_PER_HOUR = 88;
-var PAD = 10;            /* воздух сверху и снизу сетки */
 
-/* ---------- утилиты ---------- */
+var HOUR = 84;            /* высота часа в календаре, px (уточняется под экран) */
+var PAD  = 8;
+
+/* ============ мелочи ============ */
 function $(id){ return document.getElementById(id); }
-function el(tag,cls,html){ var n=document.createElement(tag); if(cls)n.className=cls; if(html!=null)n.innerHTML=html; return n; }
+function el(t,c,h){ var n=document.createElement(t); if(c)n.className=c; if(h!=null)n.innerHTML=h; return n; }
 function esc(s){ return String(s==null?"":s).replace(/[&<>"]/g,function(c){
   return {"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c]; }); }
 function mins(t){ var p=String(t||"0:0").split(":"); return (+p[0])*60+(+p[1]||0); }
+function hhmm(m){ var h=Math.floor(m/60)%24, r=m%60; return (h<10?"0":"")+h+":"+(r<10?"0":"")+r; }
 function nowMin(){ var d=new Date(); return d.getHours()*60+d.getMinutes(); }
-function dayKey(d){ return KEYS[(d.getDay()+6)%7]; }
-function items(k){ return ((S.days&&S.days[k])||[]).slice().sort(function(a,b){return mins(a.start)-mins(b.start);}); }
-function kindKey(it){ return (it.type==="lecture"?"lecture":"practice") + (it.online?"-online":""); }
-function kindOf(it){ return KIND[kindKey(it)] || KIND.practice; }
-function typeLabel(it){ return (TYPE[it.type]||it.type||"Занятие") + (it.online?" · онлайн":""); }
-function place(it){ return it.online ? "Онлайн" : (it.room || ""); }
-function shortSub(name){ return (S.subjects&&S.subjects[name]) || ""; }
 function plural(n,a,b,c){ var x=n%10,y=n%100; return n+" "+(x===1&&y!==11?a:(x>=2&&x<=4&&(y<12||y>14)?b:c)); }
+function kindKey(it){ return (it.type==="lecture"?"lecture":"practice")+(it.online?"-online":""); }
+function kindOf(it){ return KIND[kindKey(it)]||KIND.practice; }
+function short(name){ return (S.subjects&&S.subjects[name])||""; }
+function sameDay(a,b){ return a.getFullYear()===b.getFullYear()&&a.getMonth()===b.getMonth()&&a.getDate()===b.getDate(); }
 function dur(m){
   var d=Math.floor(m/1440), h=Math.floor(m%1440/60), r=m%60;
-  if(d) return d+" д"+(h?" "+h+" ч":"");
-  if(h) return h+" ч"+(r?" "+r+" м":"");
+  if(d) return d+" д "+h+" ч";
+  if(h) return h+" ч"+(r?" "+r+" мин":"");
   return r+" мин";
 }
-function hhmm(m){ var h=Math.floor(m/60), r=m%60; return (h<10?"0":"")+h+":"+(r<10?"0":"")+r; }
 
-var today = dayKey(new Date());
-
-/* даты текущей недели: понедельник — воскресенье */
-var WEEK_DATES = (function(){
-  var d=new Date(), off=(d.getDay()+6)%7, mon=new Date(d);
-  mon.setDate(d.getDate()-off); mon.setHours(0,0,0,0);
-  var out={};
-  KEYS.forEach(function(k,i){ var x=new Date(mon); x.setDate(mon.getDate()+i); out[k]=x; });
-  return out;
-})();
-function dnum(k){ return WEEK_DATES[k].getDate(); }
-
-/* границы календарной сетки — по самым ранним и поздним парам недели */
-var lo=24*60, hi=0;
-KEYS.forEach(function(k){ items(k).forEach(function(it){
-  lo=Math.min(lo,mins(it.start)); hi=Math.max(hi,mins(it.end)); }); });
-if(lo>hi){ lo=9*60; hi=18*60; }
-var GRID_START = Math.floor(lo/60)*60;
-var GRID_END   = Math.ceil(hi/60)*60;
-var GRID_MIN   = GRID_END-GRID_START;
-var GRID_H     = GRID_MIN/60*PX_PER_HOUR;
-function y(m){ return PAD + (m-GRID_START)/GRID_MIN*GRID_H; }
-
-/* раскладка пересекающихся пар по колонкам-дорожкам */
-function pack(arr){
-  var res=arr.map(function(it){ return {it:it,s:mins(it.start),e:mins(it.end),lane:0,lanes:1}; });
-  var cluster=[], end=-1;
-  function flush(){
-    var n=0; cluster.forEach(function(x){ n=Math.max(n,x.lane+1); });
-    cluster.forEach(function(x){ x.lanes=n; });
-    cluster=[];
-  }
-  res.forEach(function(ev){
-    if(cluster.length && ev.s>=end){ flush(); end=-1; }
-    var used={}; cluster.forEach(function(x){ if(x.e>ev.s) used[x.lane]=1; });
-    var l=0; while(used[l]) l++;
-    ev.lane=l; cluster.push(ev); end=Math.max(end,ev.e);
+/* ============ объединение одинаковых пар подряд + округление ============ */
+function raw(k){ return ((S.days&&S.days[k])||[]).slice().sort(function(a,b){return mins(a.start)-mins(b.start);}); }
+function same(a,b){
+  return a.subject===b.subject && a.type===b.type && !!a.online===!!b.online &&
+         (a.room||"")===(b.room||"") && (a.teacher||"")===(b.teacher||"");
+}
+var CACHE={};
+function blocks(k){
+  if(CACHE[k]) return CACHE[k];
+  var arr=raw(k), out=[], cur=null;
+  arr.forEach(function(it){
+    if(cur && same(cur.last,it) && mins(it.start)-mins(cur.last.end)<=20){
+      cur.parts.push(it); cur.last=it;
+    }else{
+      cur={it:it, last:it, parts:[it]}; out.push(cur);
+    }
   });
-  if(cluster.length) flush();
-  return res;
+  out.forEach(function(g,i){
+    g.rs = mins(g.parts[0].start);                 /* реальное начало */
+    g.re = mins(g.last.end);                       /* реальный конец  */
+    g.s  = Math.floor(g.rs/60)*60;                 /* округлённые для показа */
+    g.e  = Math.ceil(g.re/60)*60;
+    if(i && g.s < out[i-1].e) g.s = out[i-1].e;    /* не наезжать на предыдущий */
+  });
+  CACHE[k]=out;
+  return out;
 }
 
-/* ---------- шапка ---------- */
-(function head(){
-  $("mark").textContent = (S.group||"CS").replace(/[^A-Za-zА-Яа-я0-9]/g,"").slice(0,2).toUpperCase();
-  $("gname").innerHTML = '<span class="wide">Расписание </span>' + esc(S.group||"");
-  $("gmeta").innerHTML = (S.year?'<span class="wide">'+esc(S.year)+' · </span>':"") + esc(S.period||"");
-  $("foot").innerHTML = (S.updated?"Обновлено "+esc(S.updated)+" · ":"") + "сверяйтесь с официальным расписанием";
+/* границы сетки по всей неделе */
+var lo=24*60, hi=0;
+KEYS.forEach(function(k){ blocks(k).forEach(function(g){ lo=Math.min(lo,g.s); hi=Math.max(hi,g.e); }); });
+if(lo>hi){ lo=9*60; hi=18*60; }
+var G0=lo, G1=hi, GH=0;
+function fitHour(){
+  var hours=(G1-G0)/60;
+  return Math.max(64,Math.min(92,Math.floor((window.innerHeight-268)/hours)));
+}
+HOUR=fitHour(); GH=(G1-G0)/60*HOUR;
+function y(m){ return PAD+(m-G0)/60*HOUR; }
+
+/* ============ календарные дни (много недель вперёд и назад) ============ */
+var BACK=2, FWD=10;
+var now0=new Date(); now0.setHours(0,0,0,0);
+var monday=new Date(now0); monday.setDate(now0.getDate()-((now0.getDay()+6)%7));
+var DAYS=[], TODAY=-1;
+(function(){
+  for(var w=-BACK; w<=FWD; w++)
+    for(var i=0;i<6;i++){
+      var d=new Date(monday); d.setDate(monday.getDate()+w*7+i);
+      if(sameDay(d,now0)) TODAY=DAYS.length;
+      DAYS.push({key:KEYS[i], date:d});
+    }
+})();
+/* если сегодня воскресенье — «текущий» день это ближайший понедельник */
+var CUR = TODAY>=0 ? TODAY : DAYS.findIndex(function(x){ return x.date>now0; });
+if(CUR<0) CUR=0;
+function isToday(i){ return i===TODAY; }
+function fmtShort(d){ return d.getDate()+" "+MON[d.getMonth()]; }
+function fmtLong(d){ return d.getDate()+" "+MONF[d.getMonth()]; }
+
+/* ============ шапка ============ */
+$("gname").innerHTML='<span class="wide">Расписание </span>'+esc(S.group||"");
+$("gmeta").textContent=[S.year,S.period].filter(Boolean).join(" · ");
+$("foot").innerHTML=(S.updated?"Обновлено "+esc(S.updated)+" · ":"")+"сверяйтесь с официальным расписанием";
+
+/* легенда — компактная строка, без прокрутки */
+(function(){
+  var used={};
+  KEYS.forEach(function(k){ raw(k).forEach(function(it){ used[kindKey(it)]=1; }); });
+  $("legend").innerHTML = Object.keys(KIND).filter(function(x){return used[x];}).map(function(x){
+    return '<span class="lg"><i style="background:'+KIND[x].c+'"></i>'+esc(KIND[x].label)+"</span>";
+  }).join("");
 })();
 
-/* ---------- легенда ---------- */
-(function legend(){
-  var host=$("legend"), used={};
-  KEYS.forEach(function(k){ items(k).forEach(function(it){ used[kindKey(it)]=1; }); });
-  Object.keys(KIND).forEach(function(key){
-    if(!used[key]) return;
-    var n=el("div","lg"+(key.indexOf("online")>0?" dash":""),"<i></i>"+esc(KIND[key].label));
-    n.style.setProperty("--c",KIND[key].c);
-    host.appendChild(n);
-  });
-})();
-
-/* ---------- календарь: десктоп ---------- */
-var visible = KEYS.filter(function(k){ return items(k).length || k===today; });
+/* ============ календарь (десктоп): горизонтальная лента дней ============ */
+var scroller=$("scroller"), grid=$("grid");
 
 function buildWeek(){
-  var head=$("weekHead"), gutter=$("gutter"), cols=$("cols");
-  var week=$("week");
-  week.style.setProperty("--cols",visible.length);
-  week.style.setProperty("--gutter","56px");
-  head.innerHTML=""; gutter.innerHTML=""; cols.innerHTML="";
-  head.appendChild(el("div","gh"));
+  grid.innerHTML="";
+  grid.style.setProperty("--n",DAYS.length);
 
-  visible.forEach(function(k){
-    var n=items(k).length;
-    var h=el("div","dh"+(k===today?" today":"")+((k==="sat"||k==="sun")?" weekend":""),
-      '<div class="dow">'+SHORT[k]+'<b>'+dnum(k)+"</b></div>"+
-      '<div class="cnt">'+(n?plural(n,"пара","пары","пар"):"свободно")+"</div>");
-    head.appendChild(h);
-  });
+  var g=el("div","gutcol");
+  g.appendChild(el("div","dh gh"));
+  var gb=el("div","gbody"); gb.style.height=(GH+PAD*2)+"px";
+  for(var m=G0;m<=G1;m+=60){ var t=el("div","hr",hhmm(m)); t.style.top=y(m)+"px"; gb.appendChild(t); }
+  g.appendChild(gb); grid.appendChild(g);
 
-  gutter.style.height = (GRID_H+PAD*2)+"px";
-  for(var m=GRID_START;m<=GRID_END;m+=60){
-    var t=el("div","hr",hhmm(m)); t.style.top=y(m)+"px"; gutter.appendChild(t);
-  }
+  DAYS.forEach(function(day,idx){
+    var k=day.key, list=blocks(k);
+    var col=el("div","col"+(isToday(idx)?" today":""));
+    col.dataset.i=idx;
 
-  var lines=el("div","lines");
-  for(var q=GRID_START;q<=GRID_END;q+=30){
-    var ln=el("div","ln"+(q%60?" half":"")); ln.style.top=y(q)+"px"; lines.appendChild(ln);
-  }
-  cols.style.height=(GRID_H+PAD*2)+"px";
-  cols.appendChild(lines);
+    var h=el("div","dh"+(isToday(idx)?" today":""),
+      '<span class="dow">'+SHORT[k]+"</span>"+
+      '<span class="dnum">'+day.date.getDate()+"</span>"+
+      '<span class="dmon">'+MON[day.date.getMonth()]+"</span>");
+    col.appendChild(h);
 
-  var delay=0;
-  visible.forEach(function(k){
-    var col=el("div","col"+(k===today?" today":"")+((k==="sat"||k==="sun")?" weekend":""));
-    var arr=items(k), packed=pack(arr);
+    var body=el("div","cbody");
+    body.style.height=(GH+PAD*2)+"px";
+    body.style.setProperty("--hour",HOUR+"px");
+    body.style.setProperty("--top",PAD+"px");
 
-    /* окна между парами */
-    for(var i=1;i<arr.length;i++){
-      var g=mins(arr[i].start)-mins(arr[i-1].end);
-      if(g>=45){
-        var band=el("div","gapband",'<span>окно '+dur(g)+"</span>");
-        band.style.top=y(mins(arr[i-1].end))+2+"px";
-        band.style.height=Math.max(0,y(mins(arr[i].start))-y(mins(arr[i-1].end))-4)+"px";
-        col.appendChild(band);
+    list.forEach(function(gr,i){
+      if(i){
+        var gap=gr.s-list[i-1].e;
+        if(gap>=60){
+          var band=el("div","gapband",'<span>окно '+dur(gap)+"</span>");
+          band.style.top=y(list[i-1].e)+"px";
+          band.style.height=(y(gr.s)-y(list[i-1].e))+"px";
+          body.appendChild(band);
+        }
       }
-    }
-
-    packed.forEach(function(ev){
-      var it=ev.it, kd=kindOf(it), h=y(ev.e)-y(ev.s);
-      var b=el("button","ev"+(it.online?" online":"")+(h<46?" compact":"")+(h<70?" tight":""));
+      var it=gr.it, kd=kindOf(it), hgt=y(gr.e)-y(gr.s);
+      var b=el("button","ev"+(it.online?" online":"")+(hgt<74?" tight":""));
       b.style.setProperty("--c",kd.c);
-      b.style.top=y(ev.s)+1+"px";
-      b.style.height=Math.max(24,h-3)+"px";
-      b.style.left="calc("+(ev.lane/ev.lanes*100)+"% + 4px)";
-      b.style.width="calc("+(100/ev.lanes)+"% - 8px)";
-      b.style.setProperty("--d",(delay+=22)+"ms");
+      b.style.top=y(gr.s)+2+"px";
+      b.style.height=(hgt-4)+"px";
       b.innerHTML =
-        '<div class="et">'+esc(it.start)+"–"+esc(it.end)+
-          (shortSub(it.subject)?'<span class="tag">'+esc(shortSub(it.subject))+"</span>":"")+"</div>"+
-        '<div class="es">'+esc(it.subject)+"</div>"+
-        '<div class="er">'+(it.online?"🖥 Онлайн":"📍 "+esc(it.room||"—"))+"</div>";
-      b.onclick=function(){ openSheet(it,k); };
-      col.appendChild(b);
+        '<span class="ev-time">'+hhmm(gr.s)+" – "+hhmm(gr.e)+
+          (gr.parts.length>1?'<b class="ev-n">'+gr.parts.length+" пары</b>":"")+"</span>"+
+        '<span class="ev-sub">'+esc(it.subject)+"</span>"+
+        '<span class="ev-room">'+(it.online?"Онлайн":esc(it.room||"—"))+"</span>";
+      b.onclick=function(){ openCard(gr,day); };
+      body.appendChild(b);
     });
 
-    cols.appendChild(col);
+    col.appendChild(body);
+    grid.appendChild(col);
   });
+  sizeCols();
 }
 
-function drawNowLine(){
-  var old=document.querySelector(".nowline"); if(old) old.remove();
-  var idx=visible.indexOf(today); if(idx<0) return;
-  var n=nowMin(); if(n<GRID_START||n>GRID_END) return;
-  var col=$("cols").querySelectorAll(".col")[idx]; if(!col) return;
-  var line=el("div","nowline"); line.style.top=y(n)+"px"; col.appendChild(line);
+function sizeCols(){
+  var gut=56;
+  var w=Math.max(120,Math.floor((scroller.clientWidth-gut)/6));
+  var week=scroller.parentNode;
+  grid.style.setProperty("--colw",w+"px");
+  grid.style.setProperty("--gut",gut+"px");
+  week.style.setProperty("--gut",gut+"px");
+  return w;
+}
+function scrollToDay(i,smooth){
+  var w=sizeCols();
+  var start=Math.floor(i/6)*6;                 /* к началу недели этого дня */
+  scroller.scrollTo({left:start*w, behavior:smooth?"smooth":"auto"});
+}
+function weekLabel(){
+  var w=sizeCols(), first=Math.round(scroller.scrollLeft/w);
+  first=Math.max(0,Math.min(DAYS.length-1,first));
+  var a=DAYS[first].date, b=DAYS[Math.min(DAYS.length-1,first+5)].date;
+  var same=a.getMonth()===b.getMonth();
+  $("weekLabel").textContent = a.getDate()+(same?"":" "+MON[a.getMonth()])+" – "+b.getDate()+" "+MON[b.getMonth()];
+  var wk=Math.floor(first/6)-BACK;
+  $("weekHint").textContent = wk===0?"эта неделя":(wk===1?"следующая":(wk===-1?"прошлая":(wk>0?"+"+wk+" нед.":wk+" нед.")));
+}
+$("prevWeek").onclick=function(){ scroller.scrollBy({left:-6*sizeCols(),behavior:"smooth"}); };
+$("nextWeek").onclick=function(){ scroller.scrollBy({left: 6*sizeCols(),behavior:"smooth"}); };
+scroller.addEventListener("scroll",function(){
+  clearTimeout(scroller._t); scroller._t=setTimeout(weekLabel,60);
+},{passive:true});
+
+function nowLine(){
+  var old=grid.querySelector(".nowline"); if(old) old.remove();
+  if(TODAY<0) return;
+  var n=nowMin(); if(n<G0||n>G1) return;
+  var col=grid.querySelectorAll(".col")[TODAY]; if(!col) return;
+  var line=el("div","nowline"); line.style.top=y(n)+"px";
+  col.querySelector(".cbody").appendChild(line);
 }
 
-/* ---------- мобильный вид: страницы-дни ---------- */
+/* ============ телефон: страницы-дни ============ */
+var pager=$("pager");
+
 function buildMobile(){
-  var tabs=$("dayTabs"), pager=$("pager");
-  tabs.innerHTML=""; pager.innerHTML="";
+  pager.innerHTML="";
+  DAYS.forEach(function(day,idx){
+    var k=day.key, list=blocks(k);
+    var page=el("div","page"); page.dataset.i=idx;
+    page.appendChild(el("div","pday",
+      "<h2>"+FULL[k]+"</h2><p>"+fmtLong(day.date)+(isToday(idx)?' <b class="istoday">сегодня</b>':"")+"</p>"));
 
-  KEYS.forEach(function(k){
-    var n=items(k).length;
-    var b=el("button",(k===today?"today":""),
-      '<span class="d">'+SHORT[k]+'</span><span class="c">'+(n?n:"—")+"</span>");
-    b.type="button"; b.dataset.key=k; b.setAttribute("role","tab");
-    b.onclick=function(){ goPage(KEYS.indexOf(k),true); };
-    tabs.appendChild(b);
-
-    var page=el("div","page"); page.dataset.key=k;
-    page.appendChild(el("h2",null,FULL[k]+' <span class="dnum">'+dnum(k)+"</span>"));
-    var arr=items(k);
-    page.appendChild(el("div","psub",
-      k===today ? "сегодня" + (arr.length?" · "+plural(arr.length,"пара","пары","пар"):"")
-                : (arr.length? plural(arr.length,"пара","пары","пар")+" · "+arr[0].start+"–"+arr[arr.length-1].end : "выходной")));
-
-    if(!arr.length){
-      page.appendChild(el("div","free","<b>🌤</b><span>Пар нет — свободный день</span>"));
-    }else{
-      var rows=el("div","rows"), d=0;
-      arr.forEach(function(it,i){
+    if(!list.length){ page.appendChild(el("div","free","Пар нет")); }
+    else{
+      var rows=el("div","rows");
+      list.forEach(function(gr,i){
         if(i){
-          var g=mins(it.start)-mins(arr[i-1].end);
-          if(g>=45) rows.appendChild(el("div","mgap","окно "+dur(g)));
+          var gap=gr.s-list[i-1].e;
+          if(gap>=60) rows.appendChild(el("div","mgap","<span>окно "+dur(gap)+"</span>"));
         }
-        var kd=kindOf(it);
-        var r=el("button","row");
+        var it=gr.it, kd=kindOf(it);
+        var r=el("button","row"+(it.online?" online":""));
         r.style.setProperty("--c",kd.c);
-        r.style.setProperty("--d",(d+=35)+"ms");
-        r.dataset.day=k; r.dataset.start=it.start;
-        r.innerHTML =
-          '<span class="rt"><b>'+esc(it.start)+"</b><i>"+esc(it.end)+"</i></span>"+
-          '<span class="rb">'+
-            '<span class="rs">'+esc(it.subject)+"</span>"+
-            '<span class="rm"><span class="kind">'+esc(TYPE[it.type]||"Занятие")+"</span>"+
-              (place(it)?'<span class="dot">·</span><span>'+esc(place(it))+"</span>":"")+
-              (it.teacher?'<span class="dot">·</span><span>'+esc(it.teacher)+"</span>":"")+
-            "</span>"+
+        r.innerHTML=
+          '<span class="r-time"><b>'+hhmm(gr.s)+"</b><i>"+hhmm(gr.e)+"</i></span>"+
+          '<span class="r-main">'+
+            '<span class="r-sub">'+esc(it.subject)+"</span>"+
+            '<span class="r-meta">'+esc(TYPE[it.type]||"Занятие")+
+              (it.teacher?" · "+esc(it.teacher):"")+"</span>"+
+          "</span>"+
+          '<span class="r-room'+(it.online?" on":"")+'">'+
+            (it.online?"Онлайн":esc(it.room||"—"))+
+            (!it.online&&it.building?'<i>'+esc(it.building.replace("Корпус ","").replace("Главный корпус","Главный"))+"</i>":"")+
           "</span>";
-        r.onclick=function(){ openSheet(it,k); };
+        r.onclick=function(){ openCard(gr,day); };
         rows.appendChild(r);
       });
       page.appendChild(rows);
     }
     pager.appendChild(page);
   });
-
-  pager.addEventListener("scroll",function(){
-    clearTimeout(pager._t);
-    pager._t=setTimeout(function(){
-      var i=Math.round(pager.scrollLeft/pager.clientWidth);
-      markTab(i);
-    },60);
-  },{passive:true});
 }
 
-function markTab(i){
-  var tabs=$("dayTabs").children;
-  for(var j=0;j<tabs.length;j++) tabs[j].setAttribute("aria-selected", j===i?"true":"false");
-  var t=tabs[i]; if(t && t.scrollIntoView) t.scrollIntoView({inline:"center",block:"nearest",behavior:"smooth"});
+function buildTabs(){
+  var host=$("dayTabs"); host.innerHTML="";
+  for(var i=0;i<6;i++){
+    var b=el("button",null,'<span class="d"></span><span class="n"></span>');
+    b.type="button"; b.dataset.slot=i;
+    b.onclick=(function(slot){ return function(){
+      var week=Math.floor(curPage()/6);
+      goPage(week*6+slot,true);
+    };})(i);
+    host.appendChild(b);
+  }
+}
+function curPage(){ return Math.round(pager.scrollLeft/Math.max(1,pager.clientWidth)); }
+function syncTabs(){
+  var i=Math.max(0,Math.min(DAYS.length-1,curPage()));
+  var week=Math.floor(i/6), tabs=$("dayTabs").children;
+  for(var s=0;s<6;s++){
+    var day=DAYS[week*6+s], t=tabs[s];
+    t.querySelector(".d").textContent=SHORT[day.key];
+    t.querySelector(".n").textContent=day.date.getDate();
+    t.setAttribute("aria-selected", (week*6+s)===i ? "true":"false");
+    t.classList.toggle("today", (week*6+s)===TODAY);
+  }
+  $("mWeek").textContent = week-BACK===0 ? "эта неделя"
+    : (week-BACK===1?"следующая неделя":fmtShort(DAYS[week*6].date)+" – "+fmtShort(DAYS[week*6+5].date));
 }
 function goPage(i,smooth){
-  var pager=$("pager");
+  i=Math.max(0,Math.min(DAYS.length-1,i));
   pager.scrollTo({left:i*pager.clientWidth, behavior:smooth?"smooth":"auto"});
-  markTab(i);
+  setTimeout(syncTabs,smooth?350:0);
 }
+pager.addEventListener("scroll",function(){
+  clearTimeout(pager._t); pager._t=setTimeout(syncTabs,60);
+},{passive:true});
 
-/* ---------- статус: сейчас / следующая ---------- */
-function renderStatus(){
-  var host=$("status"), n=nowMin(), arr=items(today), cur=null, next=null, inMin=0, when="";
-  for(var i=0;i<arr.length;i++){
-    if(n>=mins(arr[i].start)&&n<mins(arr[i].end)){ cur=arr[i]; break; }
-    if(mins(arr[i].start)>n){ next=arr[i]; inMin=mins(arr[i].start)-n; break; }
-  }
-  if(!cur&&!next){
-    for(var d=1;d<=7&&!next;d++){
-      var k=KEYS[(KEYS.indexOf(today)+d)%7], a=items(k);
-      if(a.length){ next=a[0]; inMin=(1440-n)+(d-1)*1440+mins(a[0].start);
-                    when = d===1?"завтра":FULL[k].toLowerCase(); }
+/* ============ статус с живым таймером ============ */
+var timerTarget=null, timerMode="";
+function findNext(){
+  var n=nowMin(), i=TODAY>=0?TODAY:CUR, day=DAYS[i], list=day?blocks(day.key):[];
+  if(TODAY>=0){
+    for(var j=0;j<list.length;j++){
+      if(n>=list[j].rs && n<list[j].re) return {gr:list[j], day:day, live:true};
+      if(list[j].rs>n)                  return {gr:list[j], day:day, live:false, at:list[j].rs-n};
     }
   }
-  if(!cur&&!next){ host.innerHTML=""; return; }
-
-  var it=cur||next, kd=kindOf(it);
-  host.className="status"+(cur?" live":"");
+  for(var d=(TODAY>=0?TODAY+1:CUR); d<DAYS.length; d++){
+    var l=blocks(DAYS[d].key);
+    if(l.length){
+      var days=Math.round((DAYS[d].date-now0)/86400000);
+      return {gr:l[0], day:DAYS[d], live:false, at:days*1440-n+l[0].rs};
+    }
+  }
+  return null;
+}
+function renderStatus(){
+  var host=$("status"), r=findNext();
+  if(!r){ host.hidden=true; return; }
+  host.hidden=false;
+  var it=r.gr.it, kd=kindOf(it);
   host.style.setProperty("--c",kd.c);
-  host.innerHTML =
-    '<div class="beat"></div>'+
-    '<div class="txt">'+
-      '<div class="lbl">'+(cur?"Сейчас идёт":"Следующая пара")+"</div>"+
-      '<div class="val">'+esc(it.subject)+"</div>"+
-      '<div class="sub">'+esc(
-        (when?when+", ":"")+it.start+"–"+it.end+" · "+typeLabel(it)+(place(it)?" · "+place(it):"")
-      )+"</div>"+
+  host.className="status"+(r.live?" live":"");
+  var whenTxt = r.live ? "" :
+    (isToday(DAYS.indexOf(r.day)) ? "сегодня" :
+     (DAYS.indexOf(r.day)===TODAY+1 ? "завтра" : FULL[r.day.key].toLowerCase()+", "+fmtShort(r.day.date)));
+  host.innerHTML=
+    '<div class="st-main">'+
+      '<div class="st-lbl">'+(r.live?"Сейчас идёт":"Следующая пара")+(whenTxt?" · "+esc(whenTxt):"")+"</div>"+
+      '<div class="st-sub">'+esc(it.subject)+"</div>"+
+      '<div class="st-meta">'+hhmm(r.gr.s)+" – "+hhmm(r.gr.e)+" · "+esc(TYPE[it.type]||"")+
+        (it.teacher?" · "+esc(it.teacher):"")+"</div>"+
     "</div>"+
-    '<div class="cd">'+(cur? "ещё "+dur(mins(it.end)-n) : "через "+dur(inMin))+"</div>";
-  host.onclick=function(){ openSheet(it, cur?today:null); };
+    '<div class="st-side">'+
+      '<div class="st-room'+(it.online?" on":"")+'">'+(it.online?"Онлайн":esc(it.room||"—"))+"</div>"+
+      '<div class="st-timer"><span id="tick">--:--</span><small>'+(r.live?"до конца":"до начала")+"</small></div>"+
+    "</div>";
+  host.onclick=function(){ openCard(r.gr,r.day); };
+  timerMode=r.live?"end":"start";
+  var base=new Date(); base.setHours(0,0,0,0);
+  var dayOffset=Math.round((r.day.date-now0)/86400000);
+  timerTarget=new Date(base.getTime()+(dayOffset*1440+(r.live?r.gr.re:r.gr.rs))*60000);
+}
+function tickTimer(){
+  var node=$("tick"); if(!node||!timerTarget) return;
+  var left=Math.max(0,Math.floor((timerTarget-new Date())/1000));
+  if(left<=0){ renderStatus(); return; }
+  var h=Math.floor(left/3600), m=Math.floor(left%3600/60), s=left%60;
+  node.textContent = (h?h+":"+(m<10?"0":"")+m:m)+":"+(s<10?"0":"")+s;
+  node.parentNode.classList.toggle("big",h<1);
 }
 
-/* ---------- карточка занятия ---------- */
-var ICON={
+/* ============ карточка занятия ============ */
+var IC={
   clock:'<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
   pin:'<path d="M12 21s7-5.7 7-11a7 7 0 1 0-14 0c0 5.3 7 11 7 11z"/><circle cx="12" cy="10" r="2.6"/>',
   user:'<circle cx="12" cy="8" r="3.5"/><path d="M5 20c1.2-3.6 4-5.2 7-5.2s5.8 1.6 7 5.2"/>',
   hash:'<path d="M5 9h14M5 15h14M10 4l-1.5 16M15.5 4L14 20"/>',
-  net:'<rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/>'
+  net:'<rect x="3" y="4.5" width="18" height="12" rx="2"/><path d="M8 20h8M12 16.5V20"/>'
 };
-function field(icon,k,v,sub){
-  return '<div class="frow"><div class="fi"><svg viewBox="0 0 24 24">'+icon+'</svg></div>'+
-    '<div><div class="fk">'+esc(k)+'</div><div class="fv">'+esc(v)+
-    (sub?"<small>"+esc(sub)+"</small>":"")+'</div></div></div>';
+function row(icon,k,v,sub){
+  return '<div class="frow"><span class="fi"><svg viewBox="0 0 24 24">'+icon+"</svg></span>"+
+    '<span class="fx"><span class="fk">'+esc(k)+'</span><span class="fv">'+esc(v)+
+    (sub?"<small>"+esc(sub)+"</small>":"")+"</span></span></div>";
 }
-function openSheet(it,dk){
-  var kd=kindOf(it), sheet=$("sheet"), len=mins(it.end)-mins(it.start);
-  sheet.style.setProperty("--c",kd.c);
-  sheet.innerHTML =
-    '<div class="sh">'+
-      '<button class="close" aria-label="Закрыть"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>'+
-      '<div class="kindrow">'+
-        '<span class="badge">'+esc(typeLabel(it))+"</span>"+
-        (shortSub(it.subject)?'<span class="badge ghost">'+esc(shortSub(it.subject))+"</span>":"")+
-        (dk?'<span class="badge code">'+esc(FULL[dk])+"</span>":"")+
-      "</div>"+
+function openCard(gr,day){
+  var it=gr.it, kd=kindOf(it), card=$("card");
+  var exact=gr.parts.map(function(p){ return p.start+"–"+p.end; }).join(", ");
+  card.style.setProperty("--c",kd.c);
+  card.innerHTML=
+    '<div class="c-head">'+
+      '<button class="c-close" aria-label="Закрыть"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>'+
+      '<div class="c-tags"><span class="tag solid">'+esc(kd.label)+"</span>"+
+        (short(it.subject)?'<span class="tag">'+esc(short(it.subject))+"</span>":"")+
+        '<span class="tag muted">'+esc(FULL[day.key])+", "+fmtShort(day.date)+"</span></div>"+
       "<h3>"+esc(it.subject)+"</h3>"+
+      '<div class="c-room'+(it.online?" on":"")+'">'+
+        (it.online?"Онлайн":esc(it.room||"—"))+
+        (!it.online&&it.building?"<small>"+esc([it.building,it.note].filter(Boolean).join(" · "))+"</small>":"")+
+      "</div>"+
     "</div>"+
-    '<div class="sb">'+
-      field(ICON.clock,"Время",it.start+" – "+it.end,dur(len))+
-      (it.online
-        ? field(ICON.net,"Формат","Онлайн","Ссылку смотри в системе университета")
-        : field(ICON.pin,"Кабинет",it.room||"—",[it.building,it.note].filter(Boolean).join(" · ")))+
-      field(ICON.user,"Преподаватель",it.teacher||"Не назначен")+
-      (it.code?field(ICON.hash,"Код курса",it.code):"")+
+    '<div class="c-body">'+
+      row(IC.clock,"Время",hhmm(gr.s)+" – "+hhmm(gr.e),
+          plural(gr.parts.length,"пара","пары","пар")+" · "+exact)+
+      (it.online?row(IC.net,"Формат","Онлайн","Ссылка — в системе университета"):"")+
+      row(IC.user,"Преподаватель",it.teacher||"Не назначен")+
+      (it.code?row(IC.hash,"Код курса",it.code):"")+
     "</div>";
-  sheet.querySelector(".close").onclick=closeSheet;
-  sheet.classList.add("open");
-  $("backdrop").classList.add("open");
-  document.body.style.overflow="hidden";
+  card.querySelector(".c-close").onclick=closeCard;
+  card.classList.add("open"); $("veil").classList.add("open");
+  document.body.classList.add("locked");
 }
-function closeSheet(){
-  $("sheet").classList.remove("open");
-  $("backdrop").classList.remove("open");
-  document.body.style.overflow="";
+function closeCard(){
+  $("card").classList.remove("open"); $("veil").classList.remove("open");
+  document.body.classList.remove("locked");
 }
-$("backdrop").onclick=closeSheet;
-document.addEventListener("keydown",function(e){ if(e.key==="Escape") closeSheet(); });
+$("veil").onclick=closeCard;
+document.addEventListener("keydown",function(e){ if(e.key==="Escape") closeCard(); });
 
-/* ---------- тема ---------- */
-(function theme(){
+/* ============ тема ============ */
+(function(){
   var btn=$("themeBtn");
-  var SUN='<circle cx="12" cy="12" r="4.2"/><path d="M12 2.6v2M12 19.4v2M2.6 12h2M19.4 12h2M5.2 5.2l1.4 1.4M17.4 17.4l1.4 1.4M18.8 5.2l-1.4 1.4M6.6 17.4l-1.4 1.4"/>';
+  var SUN='<circle cx="12" cy="12" r="4"/><path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M18.4 5.6L17 7M7 17l-1.4 1.4"/>';
   var MOON='<path d="M20 14.2A8.2 8.2 0 0 1 9.8 4 8.4 8.4 0 1 0 20 14.2z"/>';
+  function isDark(){
+    var a=document.documentElement.getAttribute("data-theme");
+    return a?a==="dark":matchMedia("(prefers-color-scheme:dark)").matches;
+  }
   function apply(v){
     if(v) document.documentElement.setAttribute("data-theme",v);
     else document.documentElement.removeAttribute("data-theme");
-    var dark = v ? v==="dark" : matchMedia("(prefers-color-scheme:dark)").matches;
-    btn.innerHTML='<svg viewBox="0 0 24 24">'+(dark?SUN:MOON)+"</svg>";
+    btn.innerHTML='<svg viewBox="0 0 24 24">'+(isDark()?SUN:MOON)+"</svg>";
     var meta=document.querySelector('meta[name="theme-color"]');
-    if(meta) meta.setAttribute("content", dark?"#080a0f":"#f2f4f9");
+    if(meta) meta.setAttribute("content", isDark()?"#0e1013":"#f6f6f7");
   }
-  var saved=null;
-  try{ saved=localStorage.getItem("theme"); }catch(e){}
+  var saved=null; try{ saved=localStorage.getItem("theme"); }catch(e){}
   apply(saved);
-  btn.onclick=function(){
-    var dark = document.documentElement.getAttribute("data-theme")
-      ? document.documentElement.getAttribute("data-theme")==="dark"
-      : matchMedia("(prefers-color-scheme:dark)").matches;
-    var v = dark?"light":"dark";
-    try{ localStorage.setItem("theme",v); }catch(e){}
-    apply(v);
-  };
+  btn.onclick=function(){ var v=isDark()?"light":"dark";
+    try{ localStorage.setItem("theme",v); }catch(e){} apply(v); };
 })();
 
-/* ---------- «Сегодня» ---------- */
-$("todayBtn").onclick=function(){
-  goPage(KEYS.indexOf(today),true);
-  var col=$("cols").querySelectorAll(".col")[visible.indexOf(today)];
-  if(col && col.animate) col.animate(
-    [{filter:"brightness(1.35)"},{filter:"none"}], {duration:900, easing:"ease-out"});
-};
-
-/* ---------- запуск ---------- */
-buildWeek();
-buildMobile();
+/* ============ старт ============ */
+buildWeek(); buildMobile(); buildTabs();
 renderStatus();
-drawNowLine();
-goPage(KEYS.indexOf(today),false);
-$("todayBtn").querySelector(".tt").textContent =
-  new Date().toLocaleDateString("ru-RU",{day:"numeric",month:"short"}).replace(".","");
+scrollToDay(CUR,false); weekLabel();
+goPage(CUR,false);
+nowLine();
 
-function tick(){
-  var t=dayKey(new Date());
-  if(t!==today){ today=t; visible=KEYS.filter(function(k){return items(k).length||k===today;});
-                 buildWeek(); buildMobile(); goPage(KEYS.indexOf(today),false); }
-  renderStatus(); drawNowLine();
-  document.querySelectorAll(".ev,.row").forEach(function(n){ n.classList.remove("live","past"); });
-  var n=nowMin(), idx=visible.indexOf(today);
-  if(idx>=0){
-    var col=$("cols").querySelectorAll(".col")[idx];
-    if(col) markState(col.querySelectorAll(".ev"), items(today), n);
-  }
-  var page=$("pager").querySelector('.page[data-key="'+today+'"]');
-  if(page) markState(page.querySelectorAll(".row"), items(today), n);
+$("todayBtn").onclick=function(){ scrollToDay(CUR,true); goPage(CUR,true); };
+$("todayBtn").querySelector(".tt").textContent=fmtShort(new Date());
+
+setInterval(tickTimer,1000); tickTimer();
+setInterval(function(){ renderStatus(); tickTimer(); nowLine(); markPast(); },30000);
+
+function markPast(){
+  if(TODAY<0) return;
+  var n=nowMin(), list=blocks(DAYS[TODAY].key);
+  var col=grid.querySelectorAll(".col")[TODAY];
+  var page=pager.children[TODAY];
+  [col?col.querySelectorAll(".ev"):[], page?page.querySelectorAll(".row"):[]].forEach(function(nodes){
+    for(var i=0;i<nodes.length;i++){
+      var g=list[i]; if(!g) break;
+      nodes[i].classList.toggle("past", n>=g.re);
+      nodes[i].classList.toggle("live", n>=g.rs&&n<g.re);
+    }
+  });
 }
-function markState(nodes,arr,n){
-  var k=0;
-  for(var i=0;i<nodes.length;i++){
-    var it=arr[k++]; if(!it) break;
-    if(n>=mins(it.end)) nodes[i].classList.add("past");
-    else if(n>=mins(it.start)) nodes[i].classList.add("live");
-  }
-}
-tick();
-setInterval(tick,30000);
-document.addEventListener("visibilitychange",function(){ if(!document.hidden) tick(); });
+markPast();
+
+var rz;
 window.addEventListener("resize",function(){
-  clearTimeout(window._rz);
-  window._rz=setTimeout(function(){ goPage(KEYS.indexOf(today),false); drawNowLine(); },150);
+  clearTimeout(rz); rz=setTimeout(function(){
+    var i=curPage(), h=fitHour();
+    if(Math.abs(h-HOUR)>3){ HOUR=h; GH=(G1-G0)/60*HOUR; var at=scroller.scrollLeft; buildWeek();
+                            scroller.scrollLeft=at; markPast(); }
+    sizeCols(); goPage(i,false); weekLabel(); nowLine();
+  },160);
 });
-
-if("serviceWorker" in navigator){
+document.addEventListener("visibilitychange",function(){
+  if(!document.hidden){ renderStatus(); tickTimer(); nowLine(); markPast(); }
+});
+if("serviceWorker" in navigator)
   window.addEventListener("load",function(){ navigator.serviceWorker.register("sw.js"); });
-}
 })();

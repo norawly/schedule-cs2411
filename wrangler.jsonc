@@ -6,7 +6,7 @@
     "not_found_handling": "single-page-application"
   },
   "routes": [
-    { "pattern": "schedulecs2411.zhengisbay.com", "custom_domain": true }
+    { "pattern": "cs2411.zhengisbay.com", "custom_domain": true }
   ],
   "observability": { "enabled": true }
 }
