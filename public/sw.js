@@ -1,9 +1,9 @@
 // Кэш обновляется при каждом деплое — меняй VERSION, если нужно принудительно сбросить
-const VERSION = 'v2';
+const VERSION = 'v3';
 const CACHE = 'cs2411-' + VERSION;
-const ASSETS = ['/', '/index.html', '/styles.css', '/app.js', '/schedule.js',
-                '/manifest.webmanifest', '/icons/icon-192.png', '/icons/icon-512.png',
-                '/icons/icon-180.png'];
+const ASSETS = ['./', './index.html', './styles.css', './app.js', './schedule.js',
+                './manifest.webmanifest', './icons/icon-192.png', './icons/icon-512.png',
+                './icons/icon-180.png'].map(p => new URL(p, self.registration.scope).pathname);
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)).then(() => self.skipWaiting()));
@@ -27,6 +27,6 @@ self.addEventListener('fetch', e => {
         caches.open(CACHE).then(c => c.put(e.request, copy));
         return res;
       })
-      .catch(() => caches.match(e.request).then(r => r || caches.match('/index.html')))
+      .catch(() => caches.match(e.request).then(r => r || caches.match(ASSETS[1])))
   );
 });
