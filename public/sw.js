@@ -1,5 +1,5 @@
 // Кэш обновляется при каждом деплое — меняй VERSION, если нужно принудительно сбросить
-const VERSION = 'v6';
+const VERSION = 'v7';
 const CACHE = 'cs2411-' + VERSION;
 const ASSETS = ['./', './index.html', './styles.css', './app.js', './schedule.js',
                 './map.js', './map/floors.json', './manifest.webmanifest', './icons/icon-192.png', './icons/icon-512.png',

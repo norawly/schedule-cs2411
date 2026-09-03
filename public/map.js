@@ -28,6 +28,15 @@ function s(tag,attrs){ var n=document.createElementNS(SVGNS,tag);
 function esc(x){ return String(x==null?"":x).replace(/[&<>"]/g,function(c){
   return {"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c]; }); }
 function norm(x){ return String(x||"").toLowerCase().replace(/\s+/g,"").replace(/^c1\./,""); }
+/* ключ кабинета без хвостовой буквы: C1.2.221K → «2.221», 302P → «302».
+   Буква на конце (L/P/K) обозначает тип аудитории, номер и так уникален. */
+function keyOf(x){
+  var t=String(x||"").trim().replace(/\s+/g,"");
+  var m=t.match(/^(?:C1\.)?(\d)\.(\d{2,4})[A-Za-zА-Яа-я]?$/);
+  if(m) return m[1]+"."+m[2];
+  m=t.match(/^(\d{2,4})[A-Za-zА-Яа-я]?$/);
+  return m?m[1]:null;
+}
 function color(k){ return KIND_COLOR[k]||KIND_COLOR.other; }
 
 function bbox(poly){
@@ -48,6 +57,12 @@ function find(query){
          (r.alt||[]).some(function(a){ return norm(a)===q; })) return {room:r,floor:f};
     }
   }
+  var key=keyOf(query);                              /* по номеру без буквы */
+  if(key) for(i=0;i<DATA.floors.length;i++){
+    var fk=DATA.floors[i];
+    for(j=0;j<fk.rooms.length;j++)
+      if(keyOf(fk.rooms[j].id)===key) return {room:fk.rooms[j],floor:fk};
+  }
   for(i=0;i<DATA.floors.length;i++){                 /* мягкое совпадение */
     var f2=DATA.floors[i];
     for(j=0;j<f2.rooms.length;j++)
@@ -57,11 +72,11 @@ function find(query){
 }
 function search(query,limit){
   if(!DATA) return [];
-  var q=norm(query), out=[];
+  var q=norm(query), key=keyOf(query), out=[];
   DATA.floors.forEach(function(f){
     f.rooms.forEach(function(r){
       var hay=norm(r.id)+" "+norm(r.title)+" "+(r.alt||[]).map(norm).join(" ");
-      if(!q || hay.indexOf(q)>=0) out.push({room:r,floor:f});
+      if(!q || hay.indexOf(q)>=0 || (key && keyOf(r.id)===key)) out.push({room:r,floor:f});
     });
   });
   out.sort(function(a,b){ return norm(a.room.id).indexOf(q)-norm(b.room.id).indexOf(q); });
@@ -73,11 +88,20 @@ function label(r){ return r.title || r.id.replace(/^C1\./,""); }
 function drawFloor(floor, opts){
   opts=opts||{};
   var g=s("g",null);
-  floor.shapes.forEach(function(sh){
-    g.appendChild(s(sh.closed?"polygon":"polyline",{
-      points:sh.p.map(function(p){return p.join(",");}).join(" "),
-      "class":"mp-sh"+(sh.closed?" fill":"")}));
+
+  /* контур здания */
+  (DATA.common && DATA.common.building || []).forEach(function(b){
+    g.appendChild(s("path",{d:b.d, transform:b.t, "class":"mp-bg"}));
   });
+
+  /* зоны: стены, техпомещения, санузлы, лестницы, выходы, спортзал, коворкинг */
+  floor.zones.forEach(function(z){
+    g.appendChild(s(z.closed?"polygon":"polyline",{
+      points:z.p.map(function(p){return p.join(",");}).join(" "),
+      "class":"mp-zone z-"+(z.k||"walls")}));
+  });
+
+  /* кабинеты */
   floor.rooms.forEach(function(r){
     var on=opts.highlight && r===opts.highlight;
     var p=s("polygon",{points:r.poly.map(function(q){return q.join(",");}).join(" "),
@@ -86,19 +110,34 @@ function drawFloor(floor, opts){
     if(opts.onPick) p.addEventListener("click",function(e){ e.stopPropagation(); opts.onPick(r,floor); });
     g.appendChild(p);
   });
+
+  /* иконки: санузел, лестница, выход */
+  (floor.icons||[]).forEach(function(ic){
+    var gi=s("g",{"class":"mp-ic i-"+(ic.k||"")});
+    ic.paths.forEach(function(pp){ gi.appendChild(s("path",{d:pp.d, transform:pp.t})); });
+    g.appendChild(gi);
+  });
+
+  /* подписи кабинетов и зон */
   if(opts.labels!==false){
     floor.rooms.forEach(function(r){
-      var b=bbox(r.poly);
-      if(b.w<14 && b.h<14 && !(opts.highlight===r)) return;
-      var t=s("text",{x:b.cx, y:b.cy+1.4, "class":"mp-txt"+(opts.highlight===r?" hl":"")});
-      t.textContent=r.id.replace(/^C1\.\d\./,"").replace(/^C1\./,"");
+      var b=bbox(r.poly), on=opts.highlight===r;
+      if(b.w<14 && b.h<14 && !on) return;
+      var name=r.title || r.id.replace(/^C1\.\d\./,"").replace(/^C1\./,"");
+      var t=s("text",{x:b.cx, y:b.cy+1.4, "class":"mp-txt"+(on?" hl":"")+(r.title?" zone":"")});
+      t.textContent=name;
       g.appendChild(t);
     });
   }
+
+  /* крупные подписи блоков C1.1 / C1.2 / C1.3 */
+  (DATA.common && DATA.common.labels || []).forEach(function(l){
+    g.appendChild(s("path",{d:l.d, transform:l.t, "class":"mp-blk"}));
+  });
+
   if(opts.highlight){
     var b2=bbox(opts.highlight.poly);
-    var ring=s("circle",{cx:b2.cx, cy:b2.cy, r:Math.max(b2.w,b2.h)/2+5, "class":"mp-ring"});
-    g.appendChild(ring);
+    g.appendChild(s("circle",{cx:b2.cx, cy:b2.cy, r:Math.max(b2.w,b2.h)/2+5, "class":"mp-ring"}));
   }
   return g;
 }
@@ -121,12 +160,9 @@ function mini(host, roomQuery){
     svg.appendChild(drawFloor(hit.floor,{highlight:hit.room}));
     host.innerHTML="";
     host.appendChild(svg);
-    var cap=el("button","mp-open",
-      '<span>'+hit.floor.level+" этаж · "+esc(hit.room.id.replace(/^C1\./,""))+"</span>"+
-      "<b>Открыть карту</b>");
-    cap.onclick=function(){ open(roomQuery); };
-    host.appendChild(cap);
-    host.classList.add("ready");
+    host.appendChild(el("div","mp-cap","Нажми, чтобы открыть карту"));
+    host.classList.add("ready","clickable");
+    host.onclick=function(){ open(roomQuery); };
   }).catch(function(e){
     host.innerHTML='<div class="mp-none">Карта недоступна</div>';
   });

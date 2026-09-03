@@ -244,12 +244,18 @@ document.addEventListener("keydown",function(e){
   if(e.key==="ArrowLeft")  goWeek(week-1,-1);
   if(e.key==="ArrowRight") goWeek(week+1, 1);
 });
-var wheelLock=0;
+var wheelAcc=0, wheelAt=0;
 body.addEventListener("wheel",function(e){
-  if(Math.abs(e.deltaX)<Math.abs(e.deltaY)||Math.abs(e.deltaX)<24) return;
-  var t=Date.now(); if(t-wheelLock<420) return; wheelLock=t;
-  goWeek(week+(e.deltaX>0?1:-1), e.deltaX>0?1:-1);
-},{passive:true});
+  if(Math.abs(e.deltaX)<=Math.abs(e.deltaY)) return;
+  e.preventDefault();                       /* иначе трекпад уводит браузер назад */
+  var now=Date.now();
+  if(now-wheelAt>260) wheelAcc=0;
+  wheelAt=now; wheelAcc+=e.deltaX;
+  if(Math.abs(wheelAcc)>46){
+    var dir=wheelAcc>0?1:-1; wheelAcc=0;
+    goWeek(week+dir, dir);
+  }
+},{passive:false});
 (function(){
   var x0=null;
   body.addEventListener("touchstart",function(e){ x0=e.touches[0].clientX; },{passive:true});
@@ -288,7 +294,7 @@ function buildMobile(){
           '<span class="r-room'+(it.online?" on":"")+
             (!it.online&&roomShort(it.room).length>7?" long":"")+'"><b>'+
             (it.online?"Онлайн":esc(roomShort(it.room)||"—"))+"</b>"+
-            (!it.online&&it.building?"<i>"+esc(it.building.indexOf("Коркем")>=0?"Коркем":"Главный")+"</i>":"")+
+            (!it.online&&/коркем/i.test(it.building||"")?"<i>Коркем</i>":"")+
           "</span>";
         r.onclick=function(){ openCard(gr,day); };
         rows.appendChild(r);
@@ -401,14 +407,17 @@ function frow(icon,k,v,sub){
     '<span class="fx"><span class="fk">'+esc(k)+'</span><span class="fv">'+esc(v)+
     (sub?"<small>"+esc(sub)+"</small>":"")+"</span></span></div>";
 }
+/* корпус пишем, только если он не главный — там и так понятно */
+function bldg(it){
+  var b=it.building||"";
+  return /коркем/i.test(b) ? "Корпус Коркем" : "";
+}
 function mapBlock(it){
-  if(it.online)
-    return '<div class="c-map online"><div class="mp-body"><div class="mp-ico">🖥</div>'+
-      "<b>Онлайн-пара</b><span>Ссылка — в LMS</span></div></div>";
+  if(it.online) return "";
   var fl=floorOf(it);
   return '<div class="c-map">'+
-    '<div class="mp-head"><span>'+(fl?fl+" этаж":"Корпус")+"</span>"+
-      "<span>"+esc(it.building||"")+"</span></div>"+
+    '<div class="mp-head"><span>'+(fl?fl+" этаж":"План")+"</span>"+
+      "<span>"+esc(bldg(it)||it.note||"")+"</span></div>"+
     '<div class="mp-body" id="cardMap"></div>'+
   "</div>";
 }
@@ -419,18 +428,19 @@ function openCard(gr,day){
   card.innerHTML=
     '<div class="c-head">'+
       '<button class="c-close" aria-label="Закрыть"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>'+
-      '<div class="c-tags"><span class="tag solid">'+esc(kd.label)+"</span>"+
+      '<div class="c-tags"><span class="tag solid">'+esc(TYPE[it.type]||kd.label)+"</span>"+
         (subjShort(it.subject)?'<span class="tag">'+esc(subjShort(it.subject))+"</span>":"")+
         '<span class="tag muted">'+esc(FULL[day.key]+", "+fmtShort(day.date))+"</span></div>"+
       "<h3>"+esc(it.subject)+"</h3>"+
-      '<div class="c-room'+(it.online?" on":"")+'">'+(it.online?"Онлайн":esc(roomShort(it.room)||"—"))+
-        (!it.online&&it.building?"<small>"+esc([it.building,it.note].filter(Boolean).join(" · "))+"</small>":"")+
+      '<div class="c-room'+(it.online?" on":"")+'">'+
+        (it.online?"Онлайн":esc(roomShort(it.room)||"—"))+
+        (it.online?"<small>ссылка в LMS</small>"
+                 :(bldg(it)?"<small>"+esc(bldg(it))+"</small>":""))+
       "</div>"+
     "</div>"+
     '<div class="c-cols">'+
       '<div class="c-body">'+
         frow(IC.clock,"Время",hhmm(gr.s)+" – "+hhmm(gr.e),plural(gr.parts.length,"пара","пары","пар")+" · "+exact)+
-        (it.online?frow(IC.net,"Формат","Онлайн","Ссылка — в системе университета"):"")+
         frow(IC.user,"Преподаватель",it.teacher||"Не назначен")+
         (it.code?frow(IC.hash,"Код курса",it.code):"")+
       "</div>"+
@@ -439,9 +449,30 @@ function openCard(gr,day){
   card.querySelector(".c-close").onclick=closeCard;
   var mapHost=card.querySelector("#cardMap");
   if(mapHost && window.CampusMap) CampusMap.mini(mapHost, it.room);
+  card.scrollTop=0; card.style.transform="";
   card.classList.add("open"); $("veil").classList.add("open");
   document.body.classList.add("locked");
 }
+/* свайп вниз по карточке — закрыть */
+(function(){
+  var card=$("card"), y0=null, moved=0;
+  card.addEventListener("touchstart",function(e){
+    if(card.scrollTop>4){ y0=null; return; }
+    y0=e.touches[0].clientY; moved=0;
+  },{passive:true});
+  card.addEventListener("touchmove",function(e){
+    if(y0==null) return;
+    moved=e.touches[0].clientY-y0;
+    if(moved>0) card.style.transform="translateY("+moved+"px)";
+  },{passive:true});
+  card.addEventListener("touchend",function(){
+    if(y0==null) return;
+    card.style.transform="";
+    if(moved>90) closeCard();
+    y0=null; moved=0;
+  },{passive:true});
+})();
+
 function closeCard(){
   $("card").classList.remove("open"); $("veil").classList.remove("open");
   document.body.classList.remove("locked");
@@ -512,6 +543,15 @@ document.addEventListener("visibilitychange",function(){
   if(!document.hidden){ renderStatus(); tick(); markPast(); }
 });
 /* офлайн-кэш только на боевом домене, локально он мешает разработке */
+/* убираем плашку загрузки, когда всё нарисовано */
+(function(){
+  var b=$("boot"); if(!b) return;
+  requestAnimationFrame(function(){
+    setTimeout(function(){ b.classList.add("gone");
+      setTimeout(function(){ b.remove(); },320); },80);
+  });
+})();
+
 if("serviceWorker" in navigator){
   if(/^(localhost|127\.0\.0\.1)$/.test(location.hostname)){
     navigator.serviceWorker.getRegistrations().then(function(rs){ rs.forEach(function(r){ r.unregister(); }); });
