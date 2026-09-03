@@ -152,20 +152,39 @@ function mini(host, roomQuery){
         "</b> нет на плане корпуса C1</div>";
       return;
     }
+    /* берём заметный кусок этажа: видно соседний блок и подпись C1.x — так понятно, где это */
     var b=bbox(hit.room.poly);
-    var pad=Math.max(b.w,b.h)*1.5+26;
-    var vb=[b.cx-(b.w/2+pad), b.cy-(b.h/2+pad*0.62), b.w+pad*2, b.h+pad*1.24];
+    var W=Math.max(300, b.w*7), H=W*0.5;
+    var vb=[b.cx-W/2, b.cy-H/2, W, H];
+    var lim=DATA.viewBox;                                  /* не выходим за план */
+    if(vb[0]<lim[0]-20) vb[0]=lim[0]-20;
+    if(vb[0]+vb[2]>lim[0]+lim[2]+20) vb[0]=lim[0]+lim[2]+20-vb[2];
     var svg=s("svg",{viewBox:vb.join(" "), "class":"mp-svg",
       preserveAspectRatio:"xMidYMid slice"});
     svg.appendChild(drawFloor(hit.floor,{highlight:hit.room}));
     host.innerHTML="";
     host.appendChild(svg);
+    host.appendChild(overview(hit.room));
     host.appendChild(el("div","mp-cap","Нажми, чтобы открыть карту"));
     host.classList.add("ready","clickable");
     host.onclick=function(){ open(roomQuery); };
   }).catch(function(e){
     host.innerHTML='<div class="mp-none">Карта недоступна</div>';
   });
+}
+
+/* обзорная схема здания целиком с точкой «вы здесь» */
+function overview(room){
+  var vb=DATA.viewBox, b=bbox(room.poly);
+  var o=s("svg",{viewBox:vb.join(" "), "class":"mp-ov", preserveAspectRatio:"xMidYMid meet"});
+  (DATA.common && DATA.common.building || []).forEach(function(x){
+    o.appendChild(s("path",{d:x.d, transform:x.t, "class":"ov-bg"}));
+  });
+  o.appendChild(s("circle",{cx:b.cx, cy:b.cy, r:40, "class":"ov-halo"}));
+  o.appendChild(s("circle",{cx:b.cx, cy:b.cy, r:17, "class":"ov-dot"}));
+  var w=el("div","mp-ovwrap");
+  w.appendChild(o);
+  return w;
 }
 
 /* ---------- карта на весь экран ---------- */
@@ -337,5 +356,10 @@ function close(){
   document.body.classList.remove("locked");
 }
 
-return {open:open, close:close, mini:mini, load:load, find:find};
+/* «C1.2» по номеру кабинета — чтобы подписать, в каком блоке искать */
+function blockOf(id){
+  var m=String(id||"").match(/^C1\.(\d)\./i);
+  return m ? "блок C1."+m[1] : "";
+}
+return {open:open, close:close, mini:mini, load:load, find:find, blockOf:blockOf};
 })();

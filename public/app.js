@@ -244,15 +244,18 @@ document.addEventListener("keydown",function(e){
   if(e.key==="ArrowLeft")  goWeek(week-1,-1);
   if(e.key==="ArrowRight") goWeek(week+1, 1);
 });
-var wheelAcc=0, wheelAt=0;
+/* горизонтальный жест трекпада = одна неделя; инерция после срабатывания гасится */
+var wAcc=0, wAt=0, wLock=false;
 body.addEventListener("wheel",function(e){
-  if(Math.abs(e.deltaX)<=Math.abs(e.deltaY)) return;
-  e.preventDefault();                       /* иначе трекпад уводит браузер назад */
+  if(Math.abs(e.deltaX)<=Math.abs(e.deltaY)*1.2) return;
+  e.preventDefault();                        /* иначе браузер уходит на шаг назад */
   var now=Date.now();
-  if(now-wheelAt>260) wheelAcc=0;
-  wheelAt=now; wheelAcc+=e.deltaX;
-  if(Math.abs(wheelAcc)>46){
-    var dir=wheelAcc>0?1:-1; wheelAcc=0;
+  if(now-wAt>320){ wAcc=0; wLock=false; }    /* пауза — жест считается новым */
+  wAt=now;
+  if(wLock) return;                          /* остаток инерции игнорируем */
+  wAcc+=e.deltaX;
+  if(Math.abs(wAcc)>60){
+    var dir=wAcc>0?1:-1; wAcc=0; wLock=true;
     goWeek(week+dir, dir);
   }
 },{passive:false});
@@ -415,8 +418,9 @@ function bldg(it){
 function mapBlock(it){
   if(it.online) return "";
   var fl=floorOf(it);
+  var blk=(window.CampusMap&&CampusMap.blockOf) ? CampusMap.blockOf(it.room) : "";
   return '<div class="c-map">'+
-    '<div class="mp-head"><span>'+(fl?fl+" этаж":"План")+"</span>"+
+    '<div class="mp-head"><span>'+(fl?fl+" этаж":"План")+(blk?" · "+esc(blk):"")+"</span>"+
       "<span>"+esc(bldg(it)||it.note||"")+"</span></div>"+
     '<div class="mp-body" id="cardMap"></div>'+
   "</div>";
