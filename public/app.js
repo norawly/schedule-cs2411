@@ -402,23 +402,14 @@ function frow(icon,k,v,sub){
     (sub?"<small>"+esc(sub)+"</small>":"")+"</span></span></div>";
 }
 function mapBlock(it){
-  var fl=floorOf(it);
-  if(it.online){
+  if(it.online)
     return '<div class="c-map online"><div class="mp-body"><div class="mp-ico">🖥</div>'+
       "<b>Онлайн-пара</b><span>Ссылка — в LMS</span></div></div>";
-  }
-  return '<div class="c-map" data-floor="'+(fl||"")+'">'+
+  var fl=floorOf(it);
+  return '<div class="c-map">'+
     '<div class="mp-head"><span>'+(fl?fl+" этаж":"Корпус")+"</span>"+
       "<span>"+esc(it.building||"")+"</span></div>"+
-    '<div class="mp-body">'+
-      '<svg class="mp-svg" viewBox="0 0 220 130" aria-hidden="true">'+
-        '<g class="mp-floor"><path d="M110 14 208 62 110 110 12 62Z"/></g>'+
-        '<g class="mp-floor mp-b"><path d="M110 30 208 78 110 126 12 78Z"/></g>'+
-        '<g class="mp-pin"><path d="M132 44 168 62 132 80 96 62Z"/></g>'+
-      "</svg>"+
-      '<div class="mp-room">'+esc(roomShort(it.room)||"—")+"</div>"+
-    "</div>"+
-    '<div class="mp-note">3D-карта корпуса появится здесь</div>'+
+    '<div class="mp-body" id="cardMap"></div>'+
   "</div>";
 }
 function openCard(gr,day){
@@ -446,6 +437,8 @@ function openCard(gr,day){
       mapBlock(it)+
     "</div>";
   card.querySelector(".c-close").onclick=closeCard;
+  var mapHost=card.querySelector("#cardMap");
+  if(mapHost && window.CampusMap) CampusMap.mini(mapHost, it.room);
   card.classList.add("open"); $("veil").classList.add("open");
   document.body.classList.add("locked");
 }
@@ -503,6 +496,7 @@ var START=(function(){
   return CUR;
 })();
 goPage(START,false);
+$("mapBtn").onclick=function(){ if(window.CampusMap) CampusMap.open(null); };
 $("todayBtn").onclick=function(){
   var t = TODAY>=0 ? TODAY : START;
   goWeek(Math.floor(t/6)); goPage(t,true);

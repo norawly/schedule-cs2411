@@ -1,8 +1,8 @@
 // Кэш обновляется при каждом деплое — меняй VERSION, если нужно принудительно сбросить
-const VERSION = 'v5';
+const VERSION = 'v6';
 const CACHE = 'cs2411-' + VERSION;
 const ASSETS = ['./', './index.html', './styles.css', './app.js', './schedule.js',
-                './manifest.webmanifest', './icons/icon-192.png', './icons/icon-512.png',
+                './map.js', './map/floors.json', './manifest.webmanifest', './icons/icon-192.png', './icons/icon-512.png',
                 './icons/icon-180.png'].map(p => new URL(p, self.registration.scope).pathname);
 
 self.addEventListener('install', e => {
