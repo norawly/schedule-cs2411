@@ -42,13 +42,13 @@ function subjShort(n){ return (S.subjects&&S.subjects[n])||""; }
 
 /* кабинет коротко: C1.2.232P → 2.232P, 302P → 302P */
 function roomShort(r){ return String(r||"").replace(/^C1\./i,""); }
-/* этаж по номеру кабинета */
+/* этаж по номеру кабинета: C1.<блок>.<номер>, первая цифра номера — этаж
+   (C1.1.355P → 3 этаж, C1.2.232P → 2 этаж, 302P → 3 этаж) */
 function floorOf(it){
   if(it.online) return null;
-  var r=String(it.room||""), m=r.match(/^C1\.(\d)\./i);
-  if(m) return +m[1];
-  m=r.match(/^(\d)\d{2}/); if(m) return +m[1];
-  return null;
+  var num=String(it.room||"").split(".").pop();
+  var m=num.match(/^(\d)\d{2}/);
+  return m ? +m[1] : null;
 }
 
 /* ============ склейка пар и округление времени ============ */

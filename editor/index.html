@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Редактор карты — CS-2411</title>
+<link rel="stylesheet" href="editor.css">
+</head>
+<body>
+
+<header class="bar">
+  <div class="brand">Редактор карты <span>AITU · корпус C1</span></div>
+
+  <div class="tools">
+    <button class="t" data-tool="select" title="Выбор и правка (V)">Выбор</button>
+    <button class="t" data-tool="draw"   title="Нарисовать кабинет (N)">+ Кабинет</button>
+    <button class="t" data-tool="rect"   title="Прямоугольный кабинет (R)">+ Прямоугольник</button>
+  </div>
+
+  <div class="floors" id="floors"></div>
+
+  <div class="views">
+    <button class="v" data-view="plan" title="План (2)">План</button>
+    <button class="v" data-view="3d"   title="3D (3)">3D</button>
+    <button class="v" data-view="both" title="Оба (1)">Оба</button>
+  </div>
+
+  <div class="right">
+    <span class="dirty" id="dirty"></span>
+    <button class="btn" id="undoBtn" title="Отменить (Ctrl+Z)">Отменить</button>
+    <button class="btn" id="dlBtn" title="Скачать floors.json">Скачать</button>
+    <button class="btn primary" id="saveBtn" title="Сохранить (Ctrl+S)">Сохранить</button>
+  </div>
+</header>
+
+<main class="work">
+  <aside class="side">
+    <div class="search">
+      <input id="q" type="search" placeholder="Поиск: 2.232P, актовый…" autocomplete="off">
+    </div>
+    <div class="counts" id="counts"></div>
+    <div class="fromsched" id="fromSched"></div>
+    <div class="list" id="list"></div>
+  </aside>
+
+  <section class="stage" id="stage">
+    <div class="pane plan" id="planPane">
+      <svg id="plan" xmlns="http://www.w3.org/2000/svg">
+        <g id="viewport">
+          <g id="shapes"></g>
+          <g id="rooms"></g>
+          <g id="handles"></g>
+          <g id="ghost"></g>
+        </g>
+      </svg>
+      <div class="hint" id="hint"></div>
+    </div>
+    <div class="pane three" id="threePane">
+      <canvas id="gl"></canvas>
+      <div class="three-tools">
+        <label><input type="checkbox" id="allFloors"> все этажи</label>
+        <label><input type="checkbox" id="showLabels" checked> подписи</label>
+        <button class="btn sm" id="resetCam">Камера</button>
+      </div>
+    </div>
+  </section>
+
+  <aside class="props" id="props"></aside>
+</main>
+
+<script src="/schedule.js"></script>
+<script src="vendor/three.min.js"></script>
+<script src="vendor/OrbitControls.js"></script>
+<script src="editor.js"></script>
+</body>
+</html>

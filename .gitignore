@@ -2,3 +2,7 @@
 node_modules/
 .wrangler/
 .dev.vars
+
+# отладочный снимок редактора
+public/map/_shot.png
+public/map/backups/
