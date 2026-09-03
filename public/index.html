@@ -23,6 +23,16 @@
       <h1 id="gname">Расписание</h1>
       <p id="gmeta"></p>
     </div>
+
+    <nav class="links" aria-label="Сервисы университета">
+      <a class="lnk lms"   href="https://lms.astanait.edu.kz"        target="_blank" rel="noopener">
+        <span class="lk-n">LMS</span><span class="lk-d">задания, материалы</span></a>
+      <a class="lnk du"    href="https://du.astanait.edu.kz/login"   target="_blank" rel="noopener">
+        <span class="lk-n">DU</span><span class="lk-d">транскрипт, справки</span></a>
+      <a class="lnk learn" href="https://learn.astanait.edu.kz/dashboard" target="_blank" rel="noopener">
+        <span class="lk-n">Learn</span><span class="lk-d">онлайн-курсы</span></a>
+    </nav>
+
     <div class="acts">
       <button class="btn" id="todayBtn" title="К сегодняшнему дню"><span class="tt">Сегодня</span></button>
       <button class="btn ico" id="themeBtn" aria-label="Сменить тему"></button>
@@ -30,33 +40,31 @@
   </header>
 
   <div class="status" id="status" hidden></div>
-  <div class="legend" id="legend"></div>
 
-  <!-- ===== компьютер: лента дней с прокруткой по неделям ===== -->
-  <section class="week" aria-label="Календарь">
+  <!-- ===== компьютер: неделя целиком, без прокрутки ===== -->
+  <section class="week" aria-label="Календарь недели">
     <div class="week-bar">
-      <div class="wb-left">
-        <span class="wb-range" id="weekLabel"></span>
-        <span class="wb-hint" id="weekHint"></span>
-      </div>
       <div class="wb-nav">
         <button class="btn ico sm" id="prevWeek" aria-label="Предыдущая неделя">
           <svg viewBox="0 0 24 24"><path d="M14.5 5.5 8 12l6.5 6.5"/></svg></button>
         <button class="btn ico sm" id="nextWeek" aria-label="Следующая неделя">
           <svg viewBox="0 0 24 24"><path d="M9.5 5.5 16 12l-6.5 6.5"/></svg></button>
       </div>
+      <div class="wb-left">
+        <span class="wb-range" id="weekLabel"></span>
+        <span class="wb-hint" id="weekHint"></span>
+      </div>
+      <div class="legend" id="legend"></div>
     </div>
-    <div class="scroller" id="scroller"><div class="grid" id="grid"></div></div>
+    <div class="week-body" id="weekBody"></div>
   </section>
 
   <!-- ===== телефон: дни листаются вбок ===== -->
   <section class="mob">
-    <div class="mob-bar"><span id="mWeek"></span></div>
+    <div class="mob-bar"><span id="mWeek"></span><div class="legend" id="legendM"></div></div>
     <nav class="tabs" id="dayTabs" role="tablist" aria-label="Дни недели"></nav>
     <div class="pager" id="pager"></div>
   </section>
-
-  <footer id="foot"></footer>
 </div>
 
 <div class="veil" id="veil"></div>
