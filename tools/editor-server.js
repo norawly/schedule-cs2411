@@ -59,9 +59,17 @@ http.createServer((req, res) => {
     return;
   }
 
-  if (p === "/schedule.js") {
-    const f = path.join(ROOT, "public", "schedule.js");
-    return send(res, 200, fs.readFileSync(f), MIME[".js"]);
+  if (p === "/schedule.js") {                               // пары всех людей разом
+    const vm = require("vm"), days = {};
+    for (const dir of fs.readdirSync(path.join(ROOT, "public"))) {
+      const f = path.join(ROOT, "public", dir, "schedule.js");
+      if (!fs.existsSync(f)) continue;
+      const box = { window: {} };
+      try { vm.runInNewContext(fs.readFileSync(f, "utf8"), box); } catch (e) { continue; }
+      const d = (box.window.SCHEDULE || {}).days || {};
+      for (const k of Object.keys(d)) days[dir + "_" + k] = d[k];
+    }
+    return send(res, 200, "window.SCHEDULE=" + JSON.stringify({ days }) + ";", MIME[".js"]);
   }
 
   if (p === "/map/floors.json") {

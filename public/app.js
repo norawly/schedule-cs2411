@@ -1,6 +1,10 @@
 (function(){
 "use strict";
 
+/* корень сайта — рядом с app.js (страницы людей лежат на уровень ниже) */
+var BASE=(document.currentScript&&document.currentScript.src)
+  ? new URL(".",document.currentScript.src).href : "./";
+
 /* ============ данные ============ */
 var S     = window.SCHEDULE || {days:{}, subjects:{}};
 var T     = S.term || {};
@@ -46,7 +50,7 @@ function roomShort(r){ return String(r||"").replace(/^C1\./i,""); }
    (C1.1.355P → 3 этаж, C1.2.232P → 2 этаж, 302P → 3 этаж) */
 function floorOf(it){
   if(it.online) return null;
-  var num=String(it.room||"").split(".").pop();
+  var num=String(it.room||"").split(/[.\-]/).pop();     /* C1.1.355P, 302P, IEC-305 */
   var m=num.match(/^(\d)\d{2}/);
   return m ? +m[1] : null;
 }
@@ -126,8 +130,10 @@ var week = (function(){
 })();
 
 /* ============ шапка ============ */
-$("gname").innerHTML='<span class="wide">Расписание </span>'+esc(S.group||"");
-$("gmeta").textContent=[S.year,T.name||S.period].filter(Boolean).join(" · ");
+var WHO=S.owner||S.group||"";
+document.title="Schedule · "+WHO;
+$("gname").innerHTML='<span class="wide">Schedule · </span>'+esc(WHO);
+$("gmeta").textContent=[S.group,T.name||S.period,S.year].filter(Boolean).join(" · ");
 (function(){
   var used={}; KEYS.forEach(function(k){ rawDay(k).forEach(function(it){ used[kindKey(it)]=1; }); });
   var html=Object.keys(KIND).filter(function(x){return used[x];}).map(function(x){
@@ -297,7 +303,7 @@ function buildMobile(){
           '<span class="r-room'+(it.online?" on":"")+
             (!it.online&&roomShort(it.room).length>7?" long":"")+'"><b>'+
             (it.online?"Онлайн":esc(roomShort(it.room)||"—"))+"</b>"+
-            (!it.online&&/коркем/i.test(it.building||"")?"<i>Коркем</i>":"")+
+            (!it.online&&bldg(it)?"<i>"+esc(bldgShort(it))+"</i>":"")+
           "</span>";
         r.onclick=function(){ openCard(gr,day); };
         rows.appendChild(r);
@@ -413,11 +419,17 @@ function frow(icon,k,v,sub){
 /* корпус пишем, только если он не главный — там и так понятно */
 function bldg(it){
   var b=it.building||"";
-  return /коркем/i.test(b) ? "Корпус Коркем" : "";
+  return (!b || /главный/i.test(b)) ? "" : b;
 }
+function bldgShort(it){ return bldg(it).replace(/^корпус\s+/i,""); }
 function mapBlock(it){
   if(it.online) return "";
   var fl=floorOf(it);
+  if(bldg(it))                                  /* на карте пока только главный корпус */
+    return '<div class="c-map">'+
+      '<div class="mp-head"><span>'+(fl?fl+" этаж":"")+"</span><span>"+esc(bldg(it))+"</span></div>"+
+      '<div class="mp-body"><div class="mp-none">План корпуса '+esc(bldgShort(it))+
+        " пока не добавлен</div></div></div>";
   var blk=(window.CampusMap&&CampusMap.blockOf) ? CampusMap.blockOf(it.room) : "";
   return '<div class="c-map">'+
     '<div class="mp-head"><span>'+(fl?fl+" этаж":"План")+(blk?" · "+esc(blk):"")+"</span>"+
@@ -561,7 +573,7 @@ if("serviceWorker" in navigator){
     navigator.serviceWorker.getRegistrations().then(function(rs){ rs.forEach(function(r){ r.unregister(); }); });
     if(window.caches) caches.keys().then(function(ks){ ks.forEach(function(k){ caches.delete(k); }); });
   }else{
-    window.addEventListener("load",function(){ navigator.serviceWorker.register("sw.js"); });
+    window.addEventListener("load",function(){ navigator.serviceWorker.register(BASE+"sw.js",{scope:BASE}); });
   }
 }
 })();

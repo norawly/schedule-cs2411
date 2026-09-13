@@ -83,7 +83,11 @@ function scheduleRooms(){
   var S2=window.SCHEDULE; if(!S2||!S2.days) return [];
   var set={};
   Object.keys(S2.days).forEach(function(k){
-    (S2.days[k]||[]).forEach(function(it){ if(!it.online && it.room) set[it.room]=1; });
+    (S2.days[k]||[]).forEach(function(it){
+      if(it.online || !it.room) return;
+      if(it.building && !/главный/i.test(it.building)) return;   /* на карте только главный корпус */
+      set[it.room]=1;
+    });
   });
   return Object.keys(set).sort();
 }

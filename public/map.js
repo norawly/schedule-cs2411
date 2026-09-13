@@ -3,6 +3,9 @@
 window.CampusMap = (function(){
 "use strict";
 
+var BASE=(document.currentScript&&document.currentScript.src)
+  ? new URL(".",document.currentScript.src).href : "./";
+
 var DATA=null, loading=null;
 var KIND_COLOR={
   rooms:"#4c8dff", lab:"#a855f7", club:"#ec4899", office:"#14b8a6", hall:"#f59e0b",
@@ -13,7 +16,7 @@ var SVGNS="http://www.w3.org/2000/svg";
 
 function load(){
   if(DATA) return Promise.resolve(DATA);
-  if(!loading) loading=fetch("map/floors.json").then(function(r){ return r.json(); })
+  if(!loading) loading=fetch(BASE+"map/floors.json").then(function(r){ return r.json(); })
     .then(function(d){ DATA=d; return d; });
   return loading;
 }

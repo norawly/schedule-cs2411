@@ -1,12 +1,15 @@
 {
-  "name": "schedule-cs2411",
+  "name": "schedule",
   "compatibility_date": "2026-09-02",
+  // собирает public/<имя>/index.html для каждого schedule.js
+  "build": { "command": "python3 tools/build-pages.py" },
   "assets": {
     "directory": "./public",
-    "not_found_handling": "single-page-application"
+    "html_handling": "auto-trailing-slash",
+    "not_found_handling": "404-page"
   },
   "routes": [
-    { "pattern": "cs2411.zhengisbay.com", "custom_domain": true }
+    { "pattern": "s.zhengisbay.com", "custom_domain": true }
   ],
   "observability": { "enabled": true }
 }
