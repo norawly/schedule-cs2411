@@ -6,3 +6,8 @@ node_modules/
 # отладочный снимок редактора
 public/map/_shot.png
 public/map/backups/
+
+# генерируются перед деплоем (tools/export-json.mjs)
+public/*/schedule.json
+public/people.json
+.dev.vars

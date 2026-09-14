@@ -6,6 +6,18 @@
       "runtimeExecutable": "python3",
       "runtimeArgs": ["-m", "http.server", "8787", "--directory", "public"],
       "port": 8787
+    },
+    {
+      "name": "mock-telegram",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["/private/tmp/claude-501/-Users-nuralizhengisbay-Documents-Projects-JustSchedule/08900c88-c67a-4fb9-adf0-7b4fa3d27b84/scratchpad/mock-telegram.mjs"],
+      "port": 8799
+    },
+    {
+      "name": "bot-dev",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["wrangler", "dev", "--local", "--test-scheduled", "--port", "8788"],
+      "port": 8788
     }
   ]
 }

@@ -1,15 +1,38 @@
 {
   "name": "schedule",
+  "main": "worker/index.js",
   "compatibility_date": "2026-09-02",
-  // собирает public/<имя>/index.html для каждого schedule.js
-  "build": { "command": "python3 tools/build-pages.py" },
+  // перед деплоем: страницы людей + json для бота
+  "build": { "command": "python3 tools/build-pages.py && node tools/export-json.mjs" },
   "assets": {
     "directory": "./public",
+    "binding": "ASSETS",
     "html_handling": "auto-trailing-slash",
-    "not_found_handling": "404-page"
+    "not_found_handling": "404-page",
+    "run_worker_first": ["/tg/*", "/__scheduled"]
   },
   "routes": [
     { "pattern": "s.zhengisbay.com", "custom_domain": true }
   ],
+  // напоминания и сводки — проверка раз в минуту
+  "triggers": { "crons": ["* * * * *"] },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "schedule-bot",
+      "database_id": "fb49acea-e3d4-4c8c-a1aa-7c5464c07e3d",
+      "migrations_dir": "migrations"
+    }
+  ],
+  // антиспам: не больше 20 действий в минуту с одного аккаунта
+  "ratelimits": [
+    { "name": "RL", "namespace_id": "2411", "simple": { "limit": 20, "period": 60 } }
+  ],
+  "vars": {
+    "PUBLIC_URL": "https://s.zhengisbay.com",
+    "TZ_OFFSET_MIN": "300",
+    "REGISTRATION": "approval",
+    "MAX_USERS": "60"
+  },
   "observability": { "enabled": true }
 }

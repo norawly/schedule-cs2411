@@ -549,6 +549,20 @@ $("todayBtn").onclick=function(){
   goWeek(Math.floor(t/6)); goPage(t,true);
 };
 $("todayBtn").querySelector(".tt").textContent=fmtShort(new Date());
+
+/* ссылки из телеграм-бота: ?day=2026-09-15 открывает день, ?room=2.232P — карту */
+(function(){
+  var q=new URLSearchParams(location.search), day=q.get("day"), room=q.get("room");
+  if(day) for(var i=0;i<DAYS.length;i++) if(iso(DAYS[i].date)===day){ goWeek(Math.floor(i/6)); goPage(i,false); break; }
+  if(room && window.CampusMap) setTimeout(function(){ CampusMap.open(room); },200);
+  /* открыт внутри Telegram как мини-приложение — растягиваем на весь экран */
+  if(/tgWebApp/.test(location.hash+location.search)){
+    var tgs=document.createElement("script");
+    tgs.src="https://telegram.org/js/telegram-web-app.js";
+    tgs.onload=function(){ try{ Telegram.WebApp.ready(); Telegram.WebApp.expand(); }catch(e){} };
+    document.head.appendChild(tgs);
+  }
+})();
 tick(); setInterval(tick,1000);
 setInterval(function(){ renderStatus(); tick(); markPast(); },30000);
 var rz;
