@@ -109,5 +109,11 @@ export function parseRoom(text) {
   if (m) return { room: m[1] + m[2], main: false };
   return null;
 }
+/* ключ для карты: C1.2.221K → «2.221» (буква не важна), названия — в нижнем регистре */
+export function mapKey(room) {
+  const t = String(room || "").trim();
+  const m = t.match(/^(?:C1\.)?(\d)\.(\d{2,4})[A-Za-zА-Яа-я]?$/i);
+  return m ? `${m[1]}.${m[2]}` : t.toLowerCase();
+}
 /* номер без буквы на конце: C1.2.221K и C1.2.221P — один кабинет */
 export const roomKey = r => String(r || "").toUpperCase().replace(/^C1\./, "").replace(/[A-ZА-Я]$/, "");

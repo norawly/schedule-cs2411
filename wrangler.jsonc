@@ -3,7 +3,7 @@
   "main": "worker/index.js",
   "compatibility_date": "2026-09-02",
   // перед деплоем: страницы людей + json для бота
-  "build": { "command": "python3 tools/build-pages.py && node tools/export-json.mjs" },
+  "build": { "command": "python3 tools/build-pages.py && node tools/export-json.mjs && node tools/render-room-maps.mjs" },
   "assets": {
     "directory": "./public",
     "binding": "ASSETS",
@@ -14,8 +14,14 @@
   "routes": [
     { "pattern": "s.zhengisbay.com", "custom_domain": true }
   ],
-  // напоминания и сводки — проверка раз в минуту
+  // запасной таймер; основной — будильник Durable Object (worker/ticker.js)
   "triggers": { "crons": ["* * * * *"] },
+  "durable_objects": {
+    "bindings": [ { "name": "TICKER", "class_name": "Ticker" } ]
+  },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["Ticker"] }
+  ],
   "d1_databases": [
     {
       "binding": "DB",

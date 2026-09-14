@@ -5,7 +5,8 @@ export const getUser = (env, id) =>
 
 export const createUser = (env, u) =>
   env.DB.prepare(
-    "INSERT OR IGNORE INTO users (chat_id, name, username, person, status, created_at) VALUES (?, ?, ?, ?, ?, ?)"
+    "INSERT OR IGNORE INTO users (chat_id, name, username, person, status, lead_min, morning, evening, created_at) " +
+    "VALUES (?, ?, ?, ?, ?, 20, -1, -1, ?)"
   ).bind(u.chat_id, u.name || null, u.username || null, u.person, u.status, Date.now()).run();
 
 const EDITABLE = new Set(["person", "status", "lead_min", "morning", "evening", "notified_at", "name", "username"]);

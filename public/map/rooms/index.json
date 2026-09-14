@@ -1,0 +1,83 @@
+{
+  "rooms": {
+    "актовый зал": {
+      "file": "assemblyhall.png",
+      "floor": 1,
+      "block": "",
+      "id": "ASSEMBLYHALL"
+    },
+    "1.355": {
+      "file": "1-355.png",
+      "floor": 3,
+      "block": "C1.1",
+      "id": "C1.1.355P"
+    },
+    "2.232": {
+      "file": "2-232.png",
+      "floor": 2,
+      "block": "C1.2",
+      "id": "C1.2.232P"
+    },
+    "1.143": {
+      "file": "1-143.png",
+      "floor": 1,
+      "block": "C1.1",
+      "id": "C1.1.143"
+    },
+    "1.334": {
+      "file": "1-334.png",
+      "floor": 3,
+      "block": "C1.1",
+      "id": "C1.1.334L"
+    },
+    "2.221": {
+      "file": "2-221.png",
+      "floor": 2,
+      "block": "C1.2",
+      "id": "C1.2.221P"
+    },
+    "1.327": {
+      "file": "1-327.png",
+      "floor": 3,
+      "block": "C1.1",
+      "id": "C1.1.327"
+    },
+    "1.225": {
+      "file": "1-225.png",
+      "floor": 2,
+      "block": "C1.1",
+      "id": "C1.1.225P"
+    },
+    "2.233": {
+      "file": "2-233.png",
+      "floor": 2,
+      "block": "C1.2",
+      "id": "C1.2.233L"
+    },
+    "3.234": {
+      "file": "3-234.png",
+      "floor": 2,
+      "block": "C1.3",
+      "id": "C1.3.234K"
+    },
+    "1.241": {
+      "file": "1-241.png",
+      "floor": 2,
+      "block": "C1.1",
+      "id": "C1.1.241K"
+    },
+    "3.366": {
+      "file": "3-366.png",
+      "floor": 3,
+      "block": "C1.3",
+      "id": "C1.3.366L"
+    },
+    "3.365": {
+      "file": "3-365.png",
+      "floor": 3,
+      "block": "C1.3",
+      "id": "C1.3.365L"
+    }
+  },
+  "version": "2b5bb3ea8e"
+}

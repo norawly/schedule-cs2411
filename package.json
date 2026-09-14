@@ -1,0 +1,12 @@
+{
+  "name": "schedule",
+  "private": true,
+  "description": "Schedule — сайт расписаний и Telegram-бот (Cloudflare Workers)",
+  "scripts": {
+    "build": "python3 tools/build-pages.py && node tools/export-json.mjs && node tools/render-room-maps.mjs",
+    "deploy": "npx wrangler deploy"
+  },
+  "devDependencies": {
+    "@resvg/resvg-js": "^2.6.2"
+  }
+}

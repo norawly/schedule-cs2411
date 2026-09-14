@@ -4,61 +4,71 @@ import * as X from "./text.js";
 import * as db from "./db.js";
 import { tg } from "./tg.js";
 
-const LEADS = [15, 30, 0, 5, 10];            // по кругу: 15 → 30 → выкл → 5 → 10
-const MORNINGS = [480, 540, -1, 420];         // 08:00 → 09:00 → выкл → 07:00
-const EVENINGS = [1260, 1320, -1, 1200];      // 21:00 → 22:00 → выкл → 20:00
+const LEADS = [20, 30, 10, 15, 5, 0];          // по кругу: 20 → 30 → 10 → 15 → 5 → выкл
 const cycle = (list, v) => list[(list.indexOf(v) + 1) % list.length];
 
-/* ---------- данные ---------- */
+/* ---------- данные из статики ---------- */
 const cache = new Map();
-export async function loadPeople(env) {
-  if (cache.has("people")) return cache.get("people");
-  const r = await env.ASSETS.fetch(new Request(env.PUBLIC_URL + "/people.json"));
-  const list = r.ok ? await r.json() : [];
-  cache.set("people", list);
-  return list;
+async function asset(e, key, path) {
+  if (cache.has(key)) return cache.get(key);
+  const r = await e.ASSETS.fetch(new Request(e.PUBLIC_URL + path));
+  const v = r.ok ? await r.json() : null;
+  if (v) cache.set(key, v);
+  return v;
 }
-export async function loadSchedule(env, slug) {
-  if (!slug) return null;
-  if (cache.has(slug)) return cache.get(slug);
-  const r = await env.ASSETS.fetch(new Request(`${env.PUBLIC_URL}/${slug}/schedule.json`));
-  if (!r.ok) return null;
-  const s = await r.json();
-  cache.set(slug, s);
-  return s;
-}
-const site = (env, slug, query = "") => `${env.PUBLIC_URL}/${slug}/${query}`;
+export const loadPeople = async e => (await asset(e, "people", "/people.json")) || [];
+export const loadSchedule = (e, slug) => slug ? asset(e, "s:" + slug, `/${slug}/schedule.json`) : null;
+const loadRoomMaps = async e => (await asset(e, "maps", "/map/rooms/index.json")) || { rooms: {} };
+const site = (e, slug, query = "") => `${e.PUBLIC_URL}/${slug}/${query}`;
 
 /* ---------- отправка ---------- */
 const OPTS = { parse_mode: "HTML", link_preview_options: { is_disabled: true } };
-export const send = (env, chatId, text, markup) =>
-  tg(env, "sendMessage", { chat_id: chatId, text, ...OPTS, ...(markup ? { reply_markup: markup } : {}) });
+export const send = (e, chatId, text, markup) =>
+  tg(e, "sendMessage", { chat_id: chatId, text, ...OPTS, ...(markup ? { reply_markup: markup } : {}) });
 
 async function show(c, text, markup, edit) {
   if (edit && c.mid) {
-    const r = await tg(env(c), "editMessageText",
+    const r = await tg(c.env, "editMessageText",
       { chat_id: c.chatId, message_id: c.mid, text, ...OPTS, reply_markup: markup || { inline_keyboard: [] } });
     if (r.ok || /not modified/i.test(r.description || "")) return r;
   }
-  return send(env(c), c.chatId, text, markup);
+  return send(c.env, c.chatId, text, markup);
 }
-const env = c => c.env;
+
+const sendPhoto = (e, chatId, file, version, caption, markup) =>
+  tg(e, "sendPhoto", { chat_id: chatId, photo: `${e.PUBLIC_URL}/map/rooms/${file}?v=${version}`,
+                       caption, parse_mode: "HTML", ...(markup ? { reply_markup: markup } : {}) });
 
 /* ---------- клавиатуры ---------- */
 export const menuKeyboard = (e, slug) => ({
   keyboard: [
-    [{ text: "📅 Сегодня" }, { text: "➡️ Завтра" }],
-    [{ text: "⏭ Следующая" }, { text: "🗓 Неделя" }],
-    [{ text: "⚙️ Настройки" }, { text: "🌐 Сайт", web_app: { url: site(e, slug) } }],
+    [{ text: "⏭ Следующая пара" }, { text: "⚙️ Настройки" }],
+    [{ text: "🌐 Расписание", web_app: { url: site(e, slug) } }],
   ],
   resize_keyboard: true,
   is_persistent: true,
 });
 
-export function classButtons(e, slug, it) {
+function classButtons(e, slug, it) {
   if (it.online) return [{ text: "💻 Открыть LMS", url: "https://lms.astanait.edu.kz" }];
   if (T.bldg(it)) return [];
-  return [{ text: "🗺 Где кабинет", web_app: { url: site(e, slug, "?room=" + encodeURIComponent(T.roomShort(it.room))) } }];
+  return [{ text: "🗺 Открыть на карте", web_app: { url: site(e, slug, "?room=" + encodeURIComponent(T.roomShort(it.room))) } }];
+}
+
+/* карточка пары: сверху картинка карты с кабинетом, под ней предмет, начало и кабинет */
+export async function sendClassCard(e, chatId, slug, head, g, extraRows = [], when = "") {
+  const it = g.it;
+  const maps = await loadRoomMaps(e);
+  const info = (!it.online && !T.bldg(it)) ? (maps.rooms || {})[T.mapKey(it.room)] : null;
+  const caption = X.classCard(head, g, info, when);
+  const btn = classButtons(e, slug, it);
+  const rows = [...(btn.length ? [btn] : []), ...extraRows];
+  const markup = rows.length ? { inline_keyboard: rows } : undefined;
+  if (info) {
+    const r = await sendPhoto(e, chatId, info.file, maps.version, caption, markup);
+    if (r.ok) return r;
+  }
+  return send(e, chatId, caption, markup);
 }
 
 /* ---------- вход ---------- */
@@ -90,40 +100,36 @@ async function onText(c, text) {
   if (!c.user) return send(c.env, c.chatId, "👋 Чтобы пользоваться ботом, нажми /start");
   if (c.user.status === "pending") return pendingNotice(c);
 
-  if (cmd === "/today" || text === "📅 Сегодня") return showDay(c, c.now.iso);
-  if (cmd === "/tomorrow" || text === "➡️ Завтра") return showDay(c, T.isoAdd(c.now.iso, 1));
-  if (cmd === "/next" || text === "⏭ Следующая") return showNext(c);
-  if (cmd === "/week" || text === "🗓 Неделя") return showWeek(c, T.weekStart(c.now.iso));
+  if (cmd === "/next" || text === "⏭ Следующая пара" || text === "⏭ Следующая") return nextCard(c.env, c.chatId, c.user, c.now);
   if (cmd === "/settings" || text === "⚙️ Настройки") return settings(c, "open");
+  if (cmd === "/test") return preview(c);
+  if (cmd === "/today") return showDay(c, c.now.iso);
+  if (cmd === "/tomorrow") return showDay(c, T.isoAdd(c.now.iso, 1));
+  if (cmd === "/week") return showWeek(c, T.weekStart(c.now.iso));
   if (cmd === "/where") return where(c, text.split(/\s+/).slice(1).join(" "));
   if (cmd === "/users" && c.user.status === "admin") return usersList(c);
   if (T.parseRoom(text)) return where(c, text);
   return help(c);
 }
 
-function help(c) {
-  return send(c.env, c.chatId,
-    "Что умею:\n\n" +
-    "📅 /today — пары на сегодня\n➡️ /tomorrow — на завтра\n⏭ /next — следующая пара и кабинет\n" +
-    "🗓 /week — вся неделя\n⚙️ /settings — напоминания\n\n" +
-    "📍 Напиши номер кабинета, например <code>2.232P</code>, — покажу, где он",
-    menuKeyboard(c.env, c.user.person));
-}
+const help = c => send(c.env, c.chatId,
+  "🔔 Напоминаю о каждой паре заранее: предмет, начало и кабинет на карте.\n\n" +
+  "⏭ /next — следующая пара\n⚙️ /settings — когда напоминать\n👀 /test — пример напоминания\n\n" +
+  "📍 Напиши номер кабинета, например <code>2.232P</code>, — покажу, где он",
+  menuKeyboard(c.env, c.user.person));
 
 /* ---------- регистрация ---------- */
 async function start(c) {
   if (c.user) {
     if (c.user.status === "pending") return pendingNotice(c, true);
-    await welcome(c.env, c.chatId, c.user);
-    return showDay(c, c.now.iso);
+    return welcome(c.env, c.chatId, c.user, c.now);
   }
   if (await db.countUsers(c.env) >= +(c.env.MAX_USERS || 60))
     return send(c.env, c.chatId, "😔 Мест больше нет — бот только для своих.");
   const people = await loadPeople(c.env);
   return send(c.env, c.chatId,
     `👋 Привет, ${X.esc(c.from.first_name || "")}!\n\n` +
-    "Я <b>Schedule</b>: напоминаю о парах, показываю кабинеты и где они на карте корпуса.\n\n" +
-    "<b>Чьё расписание смотрим?</b>",
+    "Я <b>Schedule</b> — напоминаю о парах и показываю, где кабинет.\n\n<b>Чьё расписание?</b>",
     { inline_keyboard: people.map(p => [{ text: p.owner + (p.group ? " · " + p.group : ""), callback_data: "p:" + p.slug }]) });
 }
 
@@ -153,33 +159,31 @@ async function pickPerson(c, slug) {
   const user = await db.getUser(c.env, c.chatId);
 
   if (user.status === "pending") {
-    await show(c, `📝 <b>Заявка отправлена</b>\n\nКак только её подтвердят — пришлю расписание <b>${X.esc(p.owner)}</b>.`, null, true);
+    await show(c, `📝 <b>Заявка отправлена</b>\n\nКак только её подтвердят — начну напоминать о парах <b>${X.esc(p.owner)}</b>.`, null, true);
     await notifyAdmins(c.env, user, p);
     return "Заявка отправлена";
   }
-  await show(c, `✅ Готово! Расписание: <b>${X.esc(p.owner)}</b>` +
+  await show(c, `✅ Расписание: <b>${X.esc(p.owner)}</b>` +
     (user.status === "admin" ? "\n\n👑 Ты первый — ты админ. Новые заявки буду присылать сюда." : ""), null, true);
-  c.user = user;
-  await welcome(c.env, c.chatId, user);
-  await showDay(c, c.now.iso);
+  await welcome(c.env, c.chatId, user, c.now);
   return "Добро пожаловать!";
 }
 
-async function welcome(e, chatId, user) {
+async function welcome(e, chatId, user, now) {
   await setMenuButton(e, chatId, user.person);
-  return send(e, chatId,
-    "Меню внизу 👇\n\n" +
-    `⏰ Напомню за ${user.lead_min || 15} мин до пары\n☀️ Утром пришлю пары на день\n🌙 Вечером — на завтра\n\n` +
-    "Поменять — ⚙️ Настройки. Напиши номер кабинета, например <code>2.232P</code>, — покажу, где он.",
+  await send(e, chatId,
+    `🔔 Буду напоминать о каждой паре <b>за ${user.lead_min || 20} мин</b>: предмет, время начала и кабинет на карте.\n\n` +
+    "🌐 Расписание целиком — кнопка «Расписание». Время напоминаний — ⚙️ Настройки.\n" +
+    "📍 Напиши номер кабинета, например <code>2.232P</code>, — покажу, где он.",
     menuKeyboard(e, user.person));
+  return nextCard(e, chatId, user, now);
 }
 
 const setMenuButton = (e, chatId, slug) =>
   tg(e, "setChatMenuButton", { chat_id: chatId, menu_button: { type: "web_app", text: "Расписание", web_app: { url: site(e, slug) } } });
 
 async function pendingNotice(c, force) {
-  const last = c.user.notified_at || 0;
-  if (!force && Date.now() - last < 10 * 60000) return;      // не чаще раза в 10 минут
+  if (!force && Date.now() - (c.user.notified_at || 0) < 10 * 60000) return;   // не чаще раза в 10 минут
   await db.updateUser(c.env, c.chatId, { notified_at: Date.now() });
   return send(c.env, c.chatId, "⏳ Заявка ещё на рассмотрении — напишу, как только пустят.");
 }
@@ -204,7 +208,7 @@ async function admin(c, act, id) {
     await show(c, `✅ Пустил: ${X.who(target)}`, null, true);
     await send(c.env, target.chat_id, "🎉 <b>Заявку подтвердили!</b>");
     target.status = "approved";
-    await welcome(c.env, target.chat_id, target);
+    await welcome(c.env, target.chat_id, target, c.now);
     return "Пустил";
   }
   if (act === "no") {
@@ -224,8 +228,7 @@ async function admin(c, act, id) {
 async function usersList(c) {
   const list = await db.allUsers(c.env);
   const icon = { admin: "👑", approved: "✅", pending: "⏳", banned: "🚫" };
-  return send(c.env, c.chatId,
-    `👥 <b>Пользователи: ${list.length}</b>\n\n` +
+  return send(c.env, c.chatId, `👥 <b>Пользователи: ${list.length}</b>\n\n` +
     list.map(u => `${icon[u.status] || "•"} ${X.who(u)} — ${X.esc(u.person || "")}`).join("\n"));
 }
 
@@ -236,61 +239,50 @@ async function onCallback(c, cb) {
   let toast = "";
   if (kind === "p") toast = await pickPerson(c, a);
   else if (!c.user || c.user.status === "pending") toast = "Сначала регистрация — /start";
+  else if (kind === "n") await nextCard(c.env, c.chatId, c.user, c.now);
+  else if (kind === "t") await preview(c);
   else if (kind === "d") await showDay(c, a, true);
   else if (kind === "w") await showWeek(c, a, true);
-  else if (kind === "n") await showNext(c, true);
   else if (kind === "s") toast = await settings(c, a, true);
   else if (kind === "a") toast = await admin(c, a, b);
   await tg(c.env, "answerCallbackQuery", { callback_query_id: cb.id, ...(toast ? { text: toast } : {}) });
 }
 
 /* ---------- экраны ---------- */
-async function schedule(c) {
-  const S = await loadSchedule(c.env, c.user.person);
-  if (!S) await send(c.env, c.chatId, "Расписание не нашлось — выбери заново в ⚙️ Настройках");
-  return S;
+async function nextCard(e, chatId, user, now, customHead) {
+  const S = await loadSchedule(e, user.person);
+  if (!S) return send(e, chatId, "Расписание не нашлось — выбери заново в ⚙️ Настройках");
+  const n = T.nextClass(S, now);
+  if (!n) return send(e, chatId, "🏁 Пар больше нет — триместр позади");
+  const when = n.iso === now.iso ? "" : n.iso === T.isoAdd(now.iso, 1) ? "завтра" : T.WHEN[T.keyOf(n.iso)];
+  const head = customHead ||
+    (n.live ? `🟢 <b>Идёт сейчас</b> · ещё ${T.dur(n.left)}` : `⏭ <b>Следующая пара</b> · через ${T.dur(n.wait)}`);
+  return sendClassCard(e, chatId, user.person, head, n.g, [[{ text: "🔄 Обновить", callback_data: "n" }]], when);
 }
+
+const preview = c =>
+  nextCard(c.env, c.chatId, c.user, c.now, `🔔 <b>Пара через ${c.user.lead_min || 20} мин</b>  <i>· так выглядит напоминание</i>`);
 
 async function showDay(c, iso, edit) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(iso || "")) iso = c.now.iso;
-  const S = await schedule(c); if (!S) return;
+  const S = await loadSchedule(c.env, c.user.person); if (!S) return;
   const prev = T.stepDay(iso, -1), next = T.stepDay(iso, 1);
-  const today = T.keyOf(c.now.iso) ? c.now.iso : T.stepDay(c.now.iso, 1);
-  const kb = { inline_keyboard: [
-    [{ text: "◀️ " + T.dayLabel(prev), callback_data: "d:" + prev },
-     { text: iso === c.now.iso ? "• сегодня •" : "Сегодня", callback_data: "d:" + today },
-     { text: T.dayLabel(next) + " ▶️", callback_data: "d:" + next }],
-    [{ text: "🗓 Неделя", callback_data: "w:" + T.weekStart(iso) },
-     { text: "⏭ Следующая", callback_data: "n" },
-     { text: "🌐 Сайт", web_app: { url: site(c.env, c.user.person, "?day=" + iso) } }],
-  ] };
+  const kb = { inline_keyboard: [[
+    { text: "◀️ " + T.dayLabel(prev), callback_data: "d:" + prev },
+    { text: T.dayLabel(next) + " ▶️", callback_data: "d:" + next },
+  ]] };
   return show(c, X.dayText(S, iso, c.now), kb, edit);
 }
 
 async function showWeek(c, ws, edit) {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(ws || "")) ws = T.weekStart(c.now.iso);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(ws || "")) ws = c.now.iso;
   ws = T.weekStart(ws);
-  const S = await schedule(c); if (!S) return;
-  const cur = T.weekStart(c.now.iso);
-  const kb = { inline_keyboard: [
-    [{ text: "◀️ Пред.", callback_data: "w:" + T.isoAdd(ws, -7) },
-     { text: ws === cur ? "• эта неделя •" : "Эта неделя", callback_data: "w:" + cur },
-     { text: "След. ▶️", callback_data: "w:" + T.isoAdd(ws, 7) }],
-    [{ text: "📅 По дням", callback_data: "d:" + (ws === cur ? c.now.iso : ws) }],
-  ] };
+  const S = await loadSchedule(c.env, c.user.person); if (!S) return;
+  const kb = { inline_keyboard: [[
+    { text: "◀️ Пред.", callback_data: "w:" + T.isoAdd(ws, -7) },
+    { text: "След. ▶️", callback_data: "w:" + T.isoAdd(ws, 7) },
+  ]] };
   return show(c, X.weekText(S, ws, c.now), kb, edit);
-}
-
-async function showNext(c, edit) {
-  const S = await schedule(c); if (!S) return;
-  const { text, n } = X.nextText(S, c.now);
-  const rows = [];
-  if (n) {
-    const btn = classButtons(c.env, c.user.person, n.g.it);
-    rows.push([...btn, { text: "📅 Весь день", callback_data: "d:" + n.iso }]);
-  }
-  rows.push([{ text: "🔄 Обновить", callback_data: "n" }]);
-  return show(c, text, { inline_keyboard: rows }, edit);
 }
 
 async function where(c, query) {
@@ -299,44 +291,46 @@ async function where(c, query) {
   const S = await loadSchedule(c.env, c.user.person);
   const mine = [];
   if (S) for (const k of T.KEYS) for (const g of T.blocks(S, k))
-    if (!g.it.online && T.roomKey(g.it.room) === T.roomKey(r.room))
-      mine.push(`• ${T.SHORT[k]} ${T.hhmm(g.s)}–${T.hhmm(g.e)} — ${X.esc(g.it.subject)}`);
+    if (!g.it.online && T.mapKey(g.it.room) === T.mapKey(r.room))
+      mine.push(`• ${T.SHORT[k]} в ${T.hhmm(g.rs)} — ${X.esc(g.it.subject)}`);
+  const mineText = mine.length ? `\n\nУ тебя здесь:\n${mine.join("\n")}` : "";
 
-  if (!r.main) {
-    return send(c.env, c.chatId,
-      `📍 <code>${X.esc(r.room)}</code>\n\nПохоже, это кабинет не главного корпуса (Коркем или другой) — на карте пока только C1.` +
-      (mine.length ? `\n\nУ тебя здесь:\n${mine.join("\n")}` : ""));
+  if (!r.main)
+    return send(c.env, c.chatId, `🚪 Кабинет <b>${X.esc(r.room)}</b>\n\nПохоже, это не главный корпус (Коркем или другой) — на карте пока только C1.${mineText}`);
+
+  const maps = await loadRoomMaps(c.env);
+  const info = (maps.rooms || {})[T.mapKey(r.room)];
+  const floor = info ? info.floor : T.floorOf(r.room), block = info ? info.block : T.blockOf(r.room);
+  const caption = `🚪 Кабинет <b>${X.esc(T.roomShort(r.room))}</b> — ${floor} этаж, блок ${block}${mineText}`;
+  const markup = { inline_keyboard: [[{ text: "🗺 Открыть на карте",
+    web_app: { url: site(c.env, c.user.person, "?room=" + encodeURIComponent(T.roomShort(r.room))) } }]] };
+  if (info) {
+    const res = await sendPhoto(c.env, c.chatId, info.file, maps.version, caption, markup);
+    if (res.ok) return res;
   }
-  const fl = T.floorOf(r.room), bl = T.blockOf(r.room);
-  return send(c.env, c.chatId,
-    `📍 <b><code>${X.esc(T.roomShort(r.room))}</code></b>\n${fl} этаж, блок ${bl} главного корпуса` +
-    (mine.length ? `\n\nУ тебя здесь:\n${mine.join("\n")}` : ""),
-    { inline_keyboard: [[{ text: "🗺 Показать на карте", web_app: { url: site(c.env, c.user.person, "?room=" + encodeURIComponent(T.roomShort(r.room))) } }]] });
+  return send(c.env, c.chatId, caption, markup);
 }
 
 async function settings(c, what, edit) {
   const u = c.user;
+  const people = await loadPeople(c.env);
   if (what === "person") {
-    const people = await loadPeople(c.env);
-    await show(c, "👤 <b>Чьё расписание смотрим?</b>", { inline_keyboard: [
+    await show(c, "👤 <b>Чьё расписание?</b>", { inline_keyboard: [
       ...people.map(p => [{ text: (p.slug === u.person ? "• " : "") + p.owner + (p.group ? " · " + p.group : ""), callback_data: "p:" + p.slug }]),
       [{ text: "◀️ Назад", callback_data: "s:open" }],
     ] }, edit);
     return "";
   }
-  const changes = {};
-  if (what === "lead") changes.lead_min = cycle(LEADS, u.lead_min);
-  if (what === "morning") changes.morning = cycle(MORNINGS, u.morning);
-  if (what === "evening") changes.evening = cycle(EVENINGS, u.evening);
-  if (Object.keys(changes).length) { await db.updateUser(c.env, c.chatId, changes); Object.assign(u, changes); }
-
-  const people = await loadPeople(c.env);
+  let changed = false;
+  if (what === "lead") {
+    u.lead_min = cycle(LEADS, u.lead_min);
+    await db.updateUser(c.env, c.chatId, { lead_min: u.lead_min });
+    changed = true;
+  }
   const owner = (people.find(p => p.slug === u.person) || {}).owner || u.person;
   await show(c, X.settingsText(u, owner), { inline_keyboard: [
-    [{ text: "⏰ " + (u.lead_min ? u.lead_min + " мин" : "выкл"), callback_data: "s:lead" },
-     { text: "☀️ " + (u.morning >= 0 ? T.hhmm(u.morning) : "выкл"), callback_data: "s:morning" },
-     { text: "🌙 " + (u.evening >= 0 ? T.hhmm(u.evening) : "выкл"), callback_data: "s:evening" }],
-    [{ text: "👤 Сменить расписание", callback_data: "s:person" }],
+    [{ text: "🔔 " + (u.lead_min ? "за " + u.lead_min + " мин" : "выключено"), callback_data: "s:lead" }],
+    [{ text: "👀 Пример напоминания", callback_data: "t" }, { text: "👤 Сменить расписание", callback_data: "s:person" }],
   ] }, edit);
-  return Object.keys(changes).length ? "Сохранил" : "";
+  return changed ? (u.lead_min ? `Напомню за ${u.lead_min} мин` : "Напоминания выключены") : "";
 }
