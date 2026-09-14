@@ -57,7 +57,12 @@
 npx wrangler secret put TELEGRAM_TOKEN
 ```
 
-После этого в течение минуты cron сам настроит webhook, команды и описание бота.
+После этого cron сам настроит webhook, команды и описание бота. Не ждать —
+открыть https://s.zhengisbay.com/tg/setup (покажет ответ Telegram, без токена).
+Проверить, что всё живо: https://s.zhengisbay.com/tg/status — webhook, ошибки Telegram,
+число пользователей и время последнего запуска cron.
+
+Сменить токен: `bash tools/set-bot-token.sh`, затем открыть `/tg/setup`.
 При смене токена — то же самое, webhook перенастроится автоматически.
 
 **Локальная проверка:** `.dev.vars` с тестовым токеном, `TG_API` на фальшивый сервер
