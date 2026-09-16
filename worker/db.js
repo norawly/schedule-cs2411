@@ -9,7 +9,8 @@ export const createUser = (env, u) =>
     "VALUES (?, ?, ?, ?, ?, 20, -1, -1, ?)"
   ).bind(u.chat_id, u.name || null, u.username || null, u.person, u.status, Date.now()).run();
 
-const EDITABLE = new Set(["person", "status", "lead_min", "morning", "evening", "notified_at", "name", "username"]);
+const EDITABLE = new Set(["person", "status", "lead_min", "morning", "evening", "notified_at", "name", "username",
+                          "lang", "cal_url", "cal_hash", "cal_checked"]);
 export async function updateUser(env, id, fields) {
   const keys = Object.keys(fields).filter(k => EDITABLE.has(k));
   if (!keys.length) return;
@@ -51,3 +52,24 @@ export async function getMeta(env, key) {
 export const setMeta = (env, key, value) =>
   env.DB.prepare("INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
     .bind(key, String(value)).run();
+
+/* незнакомцы: перебор баркодов уводит в тишину, чтобы не жечь лимиты Cloudflare */
+export async function guestStrike(env, id, limit = 5, cooldown = 1800000) {
+  const r = await env.DB.prepare(
+    "INSERT INTO guests (chat_id, fails, until) VALUES (?, 1, NULL) " +
+    "ON CONFLICT(chat_id) DO UPDATE SET fails = fails + 1, " +
+    "until = CASE WHEN fails + 1 >= ? THEN ? ELSE until END RETURNING fails, until")
+    .bind(id, limit, Date.now() + cooldown).first();
+  return { fails: r ? r.fails : 1, silenced: !!(r && r.until && r.until > Date.now()) };
+}
+export async function guestQuiet(env, id) {
+  const r = await env.DB.prepare("SELECT until FROM guests WHERE chat_id = ?").bind(id).first();
+  return !!(r && r.until && r.until > Date.now());
+}
+export const guestClear = (env, id) => env.DB.prepare("DELETE FROM guests WHERE chat_id = ?").bind(id).run();
+
+/* у кого подключён календарь Moodle и кого пора проверить */
+export const calendarUsers = (env, before) =>
+  env.DB.prepare("SELECT * FROM users WHERE cal_url IS NOT NULL AND status IN ('admin','approved') " +
+                 "AND (cal_checked IS NULL OR cal_checked < ?) ORDER BY cal_checked LIMIT 10")
+    .bind(before).all().then(r => r.results);

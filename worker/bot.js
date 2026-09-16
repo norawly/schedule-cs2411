@@ -1,12 +1,18 @@
-/* Обработка сообщений и кнопок бота */
+/* Обработка сообщений и кнопок бота.
+   Главное правило: в чате живут только два последних сообщения бота — новое приходит,
+   старая карточка пары переписывается на актуальную, всё лишнее удаляется (worker/msgs.js). */
 import * as T from "./sched.js";
 import * as X from "./text.js";
 import * as db from "./db.js";
+import * as M from "./msgs.js";
+import * as moodle from "./moodle.js";
 import { tg } from "./tg.js";
+import { t as dict, subject as subjectName, durIn } from "./i18n.js";
 
 const LEADS = [20, 30, 10, 15, 5, 0];          // по кругу: 20 → 30 → 10 → 15 → 5 → выкл
-const BARCODE = /^\d{5,8}$/;                  // баркод студента
+const BARCODE = /^\d{5,8}$/;                   // баркод студента
 const cycle = (list, v) => list[(list.indexOf(v) + 1) % list.length];
+const langOf = u => (u && u.lang === "en") ? "en" : "ru";
 
 /* ---------- данные из статики ---------- */
 const cache = new Map();
@@ -20,56 +26,69 @@ async function asset(e, key, path) {
 export const loadPeople = async e => (await asset(e, "people", "/people.json")) || [];
 export const loadSchedule = (e, slug) => slug ? asset(e, "s:" + slug, `/${slug}/schedule.json`) : null;
 const loadRoomMaps = async e => (await asset(e, "maps", "/map/rooms/index.json")) || { rooms: {} };
+const loadDayCards = async e => (await asset(e, "days", "/map/days/index.json")) || { cards: {} };
 const site = (e, slug, query = "") => `${e.PUBLIC_URL}/${slug}/${query}`;
+export const loader = e => slug => loadSchedule(e, slug);
 
 /* ---------- отправка ---------- */
-const OPTS = { parse_mode: "HTML", link_preview_options: { is_disabled: true } };
-export const send = (e, chatId, text, markup) =>
-  tg(e, "sendMessage", { chat_id: chatId, text, ...OPTS, ...(markup ? { reply_markup: markup } : {}) });
+export const post = (e, chatId, msg) => M.post(e, chatId, msg, loader(e));
+export const send = (e, chatId, text, markup) => post(e, chatId, { text, markup });
 
-async function show(c, text, markup, edit) {
+/* правим сообщение под кнопкой, если не вышло — присылаем новое */
+async function show(c, text, markup, edit, kind = "info") {
   if (edit && c.mid) {
-    const r = await tg(c.env, "editMessageText",
-      { chat_id: c.chatId, message_id: c.mid, text, ...OPTS, reply_markup: markup || { inline_keyboard: [] } });
-    if (r.ok || /not modified/i.test(r.description || "")) return r;
+    const r = await M.edit(c.env, c.chatId, c.mid, { text, markup, kind });
+    if (r) return r;
   }
-  return send(c.env, c.chatId, text, markup);
+  return post(c.env, c.chatId, { text, markup, kind });
 }
-
-const sendPhoto = (e, chatId, file, version, caption, markup) =>
-  tg(e, "sendPhoto", { chat_id: chatId, photo: `${e.PUBLIC_URL}/map/rooms/${file}?v=${version}`,
-                       caption, parse_mode: "HTML", ...(markup ? { reply_markup: markup } : {}) });
 
 /* ---------- клавиатуры ---------- */
-export const menuKeyboard = (e, slug) => ({
-  keyboard: [
-    [{ text: "⏭ Следующая пара" }, { text: "⚙️ Настройки" }],
-    [{ text: "🌐 Расписание", web_app: { url: site(e, slug) } }],
-  ],
-  resize_keyboard: true,
-  is_persistent: true,
-});
+export const menuKeyboard = (e, user) => {
+  const L = dict(langOf(user));
+  return {
+    keyboard: [
+      [{ text: L.menu_next }, { text: L.menu_settings }],
+      [{ text: L.menu_site, web_app: { url: site(e, user.person) } }],
+    ],
+    resize_keyboard: true,
+    is_persistent: true,
+  };
+};
 
-function classButtons(e, slug, it) {
-  if (it.online) return [{ text: "💻 Открыть LMS", url: "https://lms.astanait.edu.kz" }];
-  if (T.bldg(it)) return [];
-  return [{ text: "🗺 Открыть на карте", web_app: { url: site(e, slug, "?room=" + encodeURIComponent(T.roomShort(it.room))) } }];
+function classButtons(e, user, it) {
+  const L = dict(langOf(user));
+  if (it.online) return [{ text: L.btn_lms, url: "https://lms.astanait.edu.kz" }];
+  if (T.bldg(it) || !/^\d/.test(T.roomShort(it.room))) return [];
+  return [{ text: L.btn_map, web_app: { url: site(e, user.person, "?room=" + encodeURIComponent(T.roomShort(it.room))) } }];
 }
 
-/* карточка пары: сверху картинка карты с кабинетом, под ней предмет, начало и кабинет */
-export async function sendClassCard(e, chatId, slug, head, g, extraRows = [], when = "") {
-  const it = g.it;
+/* карточка пары: картинка карты, сколько осталось, время, предмет и кабинет */
+export async function sendClassCard(e, chatId, user, g, iso, state, extraRows = []) {
+  const it = g.it, lang = langOf(user);
   const maps = await loadRoomMaps(e);
   const info = (!it.online && !T.bldg(it)) ? (maps.rooms || {})[T.mapKey(it.room)] : null;
-  const caption = X.classCard(head, g, info, when);
-  const btn = classButtons(e, slug, it);
+  const text = X.classCard(g, info, state, lang);
+  const btn = classButtons(e, user, it);
   const rows = [...(btn.length ? [btn] : []), ...extraRows];
   const markup = rows.length ? { inline_keyboard: rows } : undefined;
-  if (info) {
-    const r = await sendPhoto(e, chatId, info.file, maps.version, caption, markup);
-    if (r.ok) return r;
+  const ref = { slug: user.person, iso, rs: g.rs, state: state.kind, lang, info, photo: !!info };
+
+  /* та же пара уже висит последним сообщением — обновляем её, а не плодим дубли */
+  const last = await M.newest(e, chatId);
+  if (last && last.kind === "class" && last.data && last.data.slug === ref.slug &&
+      last.data.iso === ref.iso && last.data.rs === ref.rs && !!last.data.photo === !!info) {
+    const r = await M.replace(e, chatId, last.message_id, { photo: !!info, text, markup, ref });
+    if (r) return r;
   }
-  return send(e, chatId, caption, markup);
+
+  if (info) {
+    const photo = `${e.PUBLIC_URL}/map/rooms/${info.file}?v=${maps.version}`;
+    const r = await post(e, chatId, { kind: "class", photo, text, markup, ref });
+    if (r.ok) return r;
+    ref.photo = false;
+  }
+  return post(e, chatId, { kind: "class", text, markup, ref });
 }
 
 /* ---------- вход ---------- */
@@ -87,38 +106,56 @@ export async function handleUpdate(e, update) {
 
   const user = await db.getUser(e, chat.id);
   if (user && user.status === "banned") return;
+  /* незнакомец, перебиравший баркоды, сидит в тишине — ни одной функции бота */
+  if (!user && await db.guestQuiet(e, chat.id)) return;
 
-  const c = { env: e, chatId: chat.id, from, user, now: T.localNow(e) };
+  const c = { env: e, chatId: chat.id, from, user, now: T.localNow(e), lang: langOf(user) };
   if (cb) return onCallback(c, cb);
-  if (msg.text) return onText(c, msg.text.trim());
+  if (!msg.text) return;
+  await onText(c, msg.text.trim());
+  /* свои сообщения тоже убираем — чат остаётся чистым */
+  if (c.user) await tg(e, "deleteMessage", { chat_id: chat.id, message_id: msg.message_id });
 }
 
 /* ---------- текст ---------- */
 async function onText(c, text) {
+  const L = dict(c.lang);
   const cmd = text.split(/\s+/)[0].toLowerCase().replace(/@\w+$/, "");
   if (cmd === "/start") return start(c);
-  if (cmd === "/id") return send(c.env, c.chatId, `Твой chat id: <code>${c.chatId}</code>`);
   if (BARCODE.test(text)) return byBarcode(c, text);
-  if (!c.user) return send(c.env, c.chatId, "🎫 Отправь свой баркод — найду расписание. Или нажми /start");
+  if (!c.user) return stranger(c);
   if (c.user.status === "pending") return pendingNotice(c);
 
-  if (cmd === "/next" || text === "⏭ Следующая пара" || text === "⏭ Следующая") return nextCard(c.env, c.chatId, c.user, c.now);
-  if (cmd === "/settings" || text === "⚙️ Настройки") return settings(c, "open");
+  const cal = moodle.validCalUrl(text);
+  if (cal) return saveCalendar(c, cal);
+  if (/lms\.astanait\.edu\.kz\/calendar/.test(text)) return send(c.env, c.chatId, L.cal_bad);
+
+  if (cmd === "/next" || text === L.menu_next || text === dict("ru").menu_next || text === dict("en").menu_next)
+    return nextCard(c.env, c.chatId, c.user, c.now);
+  if (cmd === "/settings" || text === L.menu_settings || text === dict("ru").menu_settings || text === dict("en").menu_settings)
+    return settings(c, "open");
   if (cmd === "/test") return preview(c);
-  if (cmd === "/today") return showDay(c, c.now.iso);
+  if (cmd === "/today") return todayCard(c);
+  if (cmd === "/day") return showDay(c, c.now.iso);
   if (cmd === "/tomorrow") return showDay(c, T.isoAdd(c.now.iso, 1));
   if (cmd === "/week") return showWeek(c, T.weekStart(c.now.iso));
+  if (cmd === "/deadlines") return deadlines(c);
   if (cmd === "/where") return where(c, text.split(/\s+/).slice(1).join(" "));
+  if (cmd === "/id") return send(c.env, c.chatId, `<code>${c.chatId}</code>`);
   if (cmd === "/users" && c.user.status === "admin") return usersList(c);
   if (T.parseRoom(text)) return where(c, text);
   return help(c);
 }
 
-const help = c => send(c.env, c.chatId,
-  "🔔 Напоминаю о каждой паре заранее: предмет, начало и кабинет на карте.\n\n" +
-  "⏭ /next — следующая пара\n⚙️ /settings — когда напоминать\n👀 /test — пример напоминания\n\n" +
-  "📍 Напиши номер кабинета, например <code>2.232P</code>, — покажу, где он",
-  menuKeyboard(c.env, c.user.person));
+const help = c => post(c.env, c.chatId,
+  { text: dict(c.lang).welcome(c.user.lead_min || 20), markup: menuKeyboard(c.env, c.user) });
+
+/* незнакомец без баркода: подсказываем один раз, а спам уводим в тишину */
+async function stranger(c) {
+  const { silenced } = await db.guestStrike(c.env, c.chatId);
+  if (silenced) return;
+  return send(c.env, c.chatId, dict(c.lang).ask_barcode);
+}
 
 /* ---------- регистрация ---------- */
 async function start(c) {
@@ -126,114 +163,71 @@ async function start(c) {
     if (c.user.status === "pending") return pendingNotice(c, true);
     return welcome(c.env, c.chatId, c.user, c.now);
   }
+  if (await db.guestQuiet(c.env, c.chatId)) return;
+  const L = dict(c.lang);
   return send(c.env, c.chatId,
-    `👋 Привет, ${X.esc(c.from.first_name || "")}!\n\n` +
-    "Я <b>Schedule</b> — напоминаю о парах за 20 минут и показываю, где кабинет.\n\n" +
-    "🎫 Отправь свой <b>баркод</b> — найду твоё расписание.");
+    `👋 ${L.hi}, ${X.esc(c.from.first_name || "")}!\n\n${L.start_intro}\n\n${L.start_ask}`);
 }
 
-/* вход по баркоду: есть такой — сразу расписание, нет — к кому обратиться */
+/* вход по баркоду: есть такой — сразу расписание; нет — ни одной функции, а за перебор тишина */
 async function byBarcode(c, code) {
+  const L = dict(c.lang);
   const people = await loadPeople(c.env);
   const p = people.find(x => x.barcode && x.barcode === code);
-  if (!p) return send(c.env, c.chatId,
-    `🤔 Баркода <b>${X.esc(code)}</b> у меня нет.\n\n` +
-    `Напиши ${X.esc(c.env.ADMIN_CONTACT || "админу")} — он добавит твоё расписание, и всё заработает.`);
+
+  if (!p) {
+    if (c.user) return send(c.env, c.chatId, `🤔 <b>${X.esc(code)}</b> — ${L.ask_barcode}`);
+    const { silenced } = await db.guestStrike(c.env, c.chatId);
+    if (silenced) return;
+    return send(c.env, c.chatId,
+      `🤔 Баркода <b>${X.esc(code)}</b> у меня нет.\n\n` +
+      `Напиши ${X.esc(c.env.ADMIN_CONTACT || "админу")} — он добавит твоё расписание, и всё заработает.`);
+  }
 
   if (c.user) {                                   // смена расписания у своих
     await db.updateUser(c.env, c.chatId, { person: p.slug });
     c.user.person = p.slug;
-    await setMenuButton(c.env, c.chatId, p.slug);
-    await send(c.env, c.chatId, `✅ Переключил на баркод <b>${X.esc(code)}</b>.`, menuKeyboard(c.env, p.slug));
+    await setMenuButton(c.env, c.chatId, c.user);
+    await post(c.env, c.chatId, { text: L.switched(code), markup: menuKeyboard(c.env, c.user) });
     return nextCard(c.env, c.chatId, c.user, c.now);
   }
   if (await db.countUsers(c.env) >= +(c.env.MAX_USERS || 60))
-    return send(c.env, c.chatId, "😔 Мест больше нет — бот только для своих.");
+    return send(c.env, c.chatId, L.no_places);
 
   const first = !(await db.adminExists(c.env));
   const name = [c.from.first_name, c.from.last_name].filter(Boolean).join(" ");
   await db.createUser(c.env, { chat_id: c.chatId, name, username: c.from.username,
                                person: p.slug, status: first ? "admin" : "approved" });
+  await db.guestClear(c.env, c.chatId);
   const user = await db.getUser(c.env, c.chatId);
   c.user = user;
-  await send(c.env, c.chatId, `✅ Нашёл расписание по баркоду <b>${X.esc(code)}</b>.`);
   return welcome(c.env, c.chatId, user, c.now);
 }
 
-async function pickPerson(c, slug) {
-  const people = await loadPeople(c.env);
-  const p = people.find(x => x.slug === slug);
-  if (!p) return "Такого расписания нет";
-
-  if (c.user) {                                            // смена расписания
-    await db.updateUser(c.env, c.chatId, { person: slug });
-    if (c.user.status === "pending") return "Заявка ещё на рассмотрении";
-    c.user.person = slug;
-    await setMenuButton(c.env, c.chatId, slug);
-    await show(c, `✅ Теперь расписание: <b>${X.esc(p.owner)}</b>`, null, true);
-    await send(c.env, c.chatId, "Меню обновил 👇", menuKeyboard(c.env, slug));
-    return "Готово";
-  }
-
-  if (await db.countUsers(c.env) >= +(c.env.MAX_USERS || 60)) {
-    await show(c, "😔 Мест больше нет — бот только для своих.", null, true);
-    return "";
-  }
-  const first = !(await db.adminExists(c.env));
-  const status = first ? "admin" : (c.env.REGISTRATION === "open" ? "approved" : "pending");
-  const name = [c.from.first_name, c.from.last_name].filter(Boolean).join(" ");
-  await db.createUser(c.env, { chat_id: c.chatId, name, username: c.from.username, person: slug, status });
-  const user = await db.getUser(c.env, c.chatId);
-
-  if (user.status === "pending") {
-    await show(c, `📝 <b>Заявка отправлена</b>\n\nКак только её подтвердят — начну напоминать о парах <b>${X.esc(p.owner)}</b>.`, null, true);
-    await notifyAdmins(c.env, user, p);
-    return "Заявка отправлена";
-  }
-  await show(c, `✅ Расписание: <b>${X.esc(p.owner)}</b>` +
-    (user.status === "admin" ? "\n\n👑 Ты первый — ты админ. Новые заявки буду присылать сюда." : ""), null, true);
-  await welcome(c.env, c.chatId, user, c.now);
-  return "Добро пожаловать!";
-}
-
 async function welcome(e, chatId, user, now) {
-  await setMenuButton(e, chatId, user.person);
-  await send(e, chatId,
-    `🔔 Буду напоминать о каждой паре <b>за ${user.lead_min || 20} мин</b>: предмет, время начала и кабинет на карте.\n\n` +
-    "🌐 Расписание целиком — кнопка «Расписание». Время напоминаний — ⚙️ Настройки.\n" +
-    "📍 Напиши номер кабинета, например <code>2.232P</code>, — покажу, где он.",
-    menuKeyboard(e, user.person));
+  const L = dict(langOf(user));
+  await setMenuButton(e, chatId, user);
+  await post(e, chatId, { text: L.welcome(user.lead_min || 20), markup: menuKeyboard(e, user) });
   return nextCard(e, chatId, user, now);
 }
 
-const setMenuButton = (e, chatId, slug) =>
-  tg(e, "setChatMenuButton", { chat_id: chatId, menu_button: { type: "web_app", text: "Расписание", web_app: { url: site(e, slug) } } });
+const setMenuButton = (e, chatId, user) =>
+  tg(e, "setChatMenuButton", { chat_id: chatId, menu_button: { type: "web_app",
+    text: dict(langOf(user)).menu_site, web_app: { url: site(e, user.person) } } });
 
 async function pendingNotice(c, force) {
-  if (!force && Date.now() - (c.user.notified_at || 0) < 10 * 60000) return;   // не чаще раза в 10 минут
+  if (!force && Date.now() - (c.user.notified_at || 0) < 10 * 60000) return;
   await db.updateUser(c.env, c.chatId, { notified_at: Date.now() });
   return send(c.env, c.chatId, "⏳ Заявка ещё на рассмотрении — напишу, как только пустят.");
 }
 
-async function notifyAdmins(e, user, p) {
-  for (const a of await db.admins(e)) {
-    await send(e, a.chat_id,
-      `🆕 <b>Заявка</b>\n\n${X.who(user)}\nхочет расписание: <b>${X.esc(p.owner)}</b>`,
-      { inline_keyboard: [[
-        { text: "✅ Пустить", callback_data: "a:ok:" + user.chat_id },
-        { text: "❌ Отклонить", callback_data: "a:no:" + user.chat_id },
-      ], [{ text: "🚫 Заблокировать", callback_data: "a:ban:" + user.chat_id }]] });
-  }
-}
-
 async function admin(c, act, id) {
-  if (c.user.status !== "admin") return "Только для админа";
+  if (c.user.status !== "admin") return "—";
   const target = await db.getUser(c.env, +id);
   if (!target) { await show(c, "Этой заявки уже нет", null, true); return ""; }
   if (act === "ok") {
     await db.updateUser(c.env, target.chat_id, { status: "approved" });
     await show(c, `✅ Пустил: ${X.who(target)}`, null, true);
-    await send(c.env, target.chat_id, "🎉 <b>Заявку подтвердили!</b>");
     target.status = "approved";
     await welcome(c.env, target.chat_id, target, c.now);
     return "Пустил";
@@ -241,7 +235,6 @@ async function admin(c, act, id) {
   if (act === "no") {
     await db.deleteUser(c.env, target.chat_id);
     await show(c, `❌ Отклонил: ${X.who(target)}`, null, true);
-    await send(c.env, target.chat_id, "Заявку отклонили.");
     return "Отклонил";
   }
   if (act === "ban") {
@@ -264,31 +257,56 @@ async function onCallback(c, cb) {
   c.mid = cb.message && cb.message.message_id;
   const [kind, a, b] = String(cb.data || "").split(":");
   let toast = "";
-  if (kind === "p") toast = await pickPerson(c, a);
-  else if (!c.user || c.user.status === "pending") toast = "Сначала регистрация — /start";
+  if (!c.user || c.user.status === "pending") toast = "Сначала баркод — /start";
   else if (kind === "n") await nextCard(c.env, c.chatId, c.user, c.now);
   else if (kind === "t") await preview(c);
   else if (kind === "d") await showDay(c, a, true);
   else if (kind === "w") await showWeek(c, a, true);
   else if (kind === "s") toast = await settings(c, a, true);
+  else if (kind === "dl") await deadlines(c, a, true);
   else if (kind === "a") toast = await admin(c, a, b);
   await tg(c.env, "answerCallbackQuery", { callback_query_id: cb.id, ...(toast ? { text: toast } : {}) });
+  /* даже при заходе в настройки прошлая карточка пары пересчитывается по времени */
+  await M.tidy(c.env, c.chatId, loader(c.env));
 }
 
 /* ---------- экраны ---------- */
-async function nextCard(e, chatId, user, now, customHead) {
+export async function nextCard(e, chatId, user, now, force) {
+  const L = dict(langOf(user));
   const S = await loadSchedule(e, user.person);
-  if (!S) return send(e, chatId, "Расписание не нашлось — выбери заново в ⚙️ Настройках");
+  if (!S) return send(e, chatId, L.ask_barcode);
   const n = T.nextClass(S, now);
-  if (!n) return send(e, chatId, "🏁 Пар больше нет — триместр позади");
-  const when = n.iso === now.iso ? "" : n.iso === T.isoAdd(now.iso, 1) ? "завтра" : T.WHEN[T.keyOf(n.iso)];
-  const head = customHead ||
-    (n.live ? `🟢 <b>Идёт сейчас</b> · ещё ${T.dur(n.left)}` : `⏭ <b>Следующая пара</b> · через ${T.dur(n.wait)}`);
-  return sendClassCard(e, chatId, user.person, head, n.g, [[{ text: "🔄 Обновить", callback_data: "n" }]], when);
+  if (!n) return send(e, chatId, L.no_more);
+  const state = force || X.stateOf(n.g, n.iso, now);
+  return sendClassCard(e, chatId, user, n.g, n.iso, state, [[{ text: L.btn_refresh, callback_data: "n" },
+                                                             { text: L.btn_day, callback_data: "s:today" }]]);
 }
 
-const preview = c =>
-  nextCard(c.env, c.chatId, c.user, c.now, `🔔 <b>Пара через ${c.user.lead_min || 20} мин</b>  <i>· так выглядит напоминание</i>`);
+const preview = c => nextCard(c.env, c.chatId, c.user, c.now,
+  { kind: "soon", mins: c.user.lead_min || 20 });
+
+/* весь сегодняшний день — одной картинкой */
+async function todayCard(c, iso) {
+  const L = dict(c.lang);
+  iso = iso || c.now.iso;
+  const S = await loadSchedule(c.env, c.user.person);
+  if (!S) return;
+  const key = T.keyOf(iso), list = T.dayBlocks(S, iso);
+  if (!list.length) return show(c, X.dayText(S, iso, c.now, c.lang), null, false);
+
+  const cards = await loadDayCards(c.env);
+  const file = (cards.cards || {})[`${c.user.person}|${key}|${c.lang}`];
+  const day = L.days[T.KEYS.indexOf(key)];
+  const now = T.nextClass(S, c.now);
+  const hint = (now && now.iso === iso)
+    ? (now.live ? `🟢 ${L.live_now(durIn(now.left, c.lang))}` : `⏭ ${L.next_in(durIn(now.wait, c.lang))} · ${T.hhmm(now.g.rs)}`)
+    : "";
+  const caption = `📅 <b>${day}, ${X.fmtDate(iso, c.lang)}</b>` + (hint ? `\n${hint}` : "");
+  const markup = { inline_keyboard: [[{ text: L.btn_back, callback_data: "s:open" }]] };
+  if (!file) return show(c, X.dayText(S, iso, c.now, c.lang), markup, false);
+  return post(c.env, c.chatId, { photo: `${c.env.PUBLIC_URL}/map/days/${file}?v=${cards.version}`,
+                                 text: caption, markup });
+}
 
 async function showDay(c, iso, edit) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(iso || "")) iso = c.now.iso;
@@ -298,7 +316,7 @@ async function showDay(c, iso, edit) {
     { text: "◀️ " + T.dayLabel(prev), callback_data: "d:" + prev },
     { text: T.dayLabel(next) + " ▶️", callback_data: "d:" + next },
   ]] };
-  return show(c, X.dayText(S, iso, c.now), kb, edit);
+  return show(c, X.dayText(S, iso, c.now, c.lang), kb, edit);
 }
 
 async function showWeek(c, ws, edit) {
@@ -306,56 +324,108 @@ async function showWeek(c, ws, edit) {
   ws = T.weekStart(ws);
   const S = await loadSchedule(c.env, c.user.person); if (!S) return;
   const kb = { inline_keyboard: [[
-    { text: "◀️ Пред.", callback_data: "w:" + T.isoAdd(ws, -7) },
-    { text: "След. ▶️", callback_data: "w:" + T.isoAdd(ws, 7) },
+    { text: "◀️", callback_data: "w:" + T.isoAdd(ws, -7) },
+    { text: "▶️", callback_data: "w:" + T.isoAdd(ws, 7) },
   ]] };
-  return show(c, X.weekText(S, ws, c.now), kb, edit);
+  return show(c, X.weekText(S, ws, c.now, c.lang), kb, edit);
 }
 
 async function where(c, query) {
+  const L = dict(c.lang);
   const r = T.parseRoom(query);
-  if (!r) return send(c.env, c.chatId, "Напиши номер кабинета, например <code>2.232P</code> или <code>1.355</code>");
+  if (!r) return send(c.env, c.chatId, `📍 <code>2.232P</code>`);
   const S = await loadSchedule(c.env, c.user.person);
   const mine = [];
   if (S) for (const k of T.KEYS) for (const g of T.blocks(S, k))
     if (!g.it.online && T.mapKey(g.it.room) === T.mapKey(r.room))
-      mine.push(`• ${T.SHORT[k]} в ${T.hhmm(g.rs)} — ${X.esc(g.it.subject)}`);
-  const mineText = mine.length ? `\n\nУ тебя здесь:\n${mine.join("\n")}` : "";
-
-  if (!r.main)
-    return send(c.env, c.chatId, `🚪 Кабинет <b>${X.esc(r.room)}</b>\n\nПохоже, это не главный корпус (Коркем или другой) — на карте пока только C1.${mineText}`);
+      mine.push(`• ${L.daysShort[T.KEYS.indexOf(k)]} ${T.hhmm(g.rs)} — ${X.esc(subjectName(g.it.subject, c.lang))}`);
+  const mineText = mine.length ? `\n\n${mine.join("\n")}` : "";
 
   const maps = await loadRoomMaps(c.env);
-  const info = (maps.rooms || {})[T.mapKey(r.room)];
+  const info = r.main ? (maps.rooms || {})[T.mapKey(r.room)] : null;
   const floor = info ? info.floor : T.floorOf(r.room), block = info ? info.block : T.blockOf(r.room);
-  const caption = `🚪 Кабинет <b>${X.esc(T.roomShort(r.room))}</b> — ${floor} этаж, блок ${block}${mineText}`;
-  const markup = { inline_keyboard: [[{ text: "🗺 Открыть на карте",
-    web_app: { url: site(c.env, c.user.person, "?room=" + encodeURIComponent(T.roomShort(r.room))) } }]] };
-  if (info) {
-    const res = await sendPhoto(c.env, c.chatId, info.file, maps.version, caption, markup);
-    if (res.ok) return res;
-  }
-  return send(c.env, c.chatId, caption, markup);
+  const caption = `🚪 ${L.room} <b>${X.esc(T.roomShort(r.room))}</b>` +
+    (info ? ` — ${L.floorAt(floor)}, ${L.blockAt(block)}` : "") + mineText;
+  const markup = info ? { inline_keyboard: [[{ text: L.btn_map,
+    web_app: { url: site(c.env, c.user.person, "?room=" + encodeURIComponent(T.roomShort(r.room))) } }]] } : undefined;
+  if (!info) return send(c.env, c.chatId, caption, markup);
+  return post(c.env, c.chatId, { photo: `${c.env.PUBLIC_URL}/map/rooms/${info.file}?v=${maps.version}`,
+                                 text: caption, markup });
 }
 
+/* ---------- дедлайны Moodle ---------- */
+async function saveCalendar(c, url) {
+  const L = dict(c.lang);
+  await db.updateUser(c.env, c.chatId, { cal_url: url, cal_hash: null, cal_checked: null });
+  c.user.cal_url = url; c.user.cal_hash = null;
+  const r = await moodle.syncUser(c.env, c.user);
+  if (!r || !r.ok) {
+    await db.updateUser(c.env, c.chatId, { cal_url: null });
+    return send(c.env, c.chatId, L.cal_fail);
+  }
+  await send(c.env, c.chatId, L.cal_ok(r.count || 0));
+  return deadlines(c);
+}
+
+async function deadlines(c, which, edit) {
+  const L = dict(c.lang), off = +(c.env.TZ_OFFSET_MIN || 300);
+  if (!c.user.cal_url) return show(c, L.cal_how, { inline_keyboard: [[{ text: L.btn_back, callback_data: "s:open" }]] }, edit);
+  const list = await moodle.upcoming(c.env, c.chatId, Date.now(), 8);
+
+  if (which !== undefined && which !== "" && list[+which]) {   // текст задания под кнопкой
+    const d = list[+which];
+    const body = (d.descr || "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+    const text = `📌 <b>${X.esc(d.title)}</b>\n<i>${X.esc(d.subject || "")}</i>\n` +
+      `🕐 ${X.dueIn(d.due, Date.now(), c.lang)}\n\n${X.esc(body.slice(0, 2500)) || "—"}`;
+    return show(c, text, { inline_keyboard: [[{ text: L.btn_back, callback_data: "dl" }]] }, edit);
+  }
+
+  const rows = list.slice(0, 5).map((d, i) =>
+    [{ text: `📄 ${d.title.replace(/ is due$/i, "")} · ${d.subject || ""}`.slice(0, 60), callback_data: "dl:" + i }]);
+  rows.push([{ text: L.btn_back, callback_data: "s:open" }, { text: L.btn_cal_off, callback_data: "s:caloff" }]);
+  return show(c, X.deadlinesText(list, Date.now(), c.lang, off), { inline_keyboard: rows }, edit);
+}
+
+/* ---------- настройки ---------- */
 async function settings(c, what, edit) {
   const u = c.user;
-  const people = await loadPeople(c.env);
-  if (what === "person") {
-    await show(c, "🎫 <b>Другое расписание</b>\n\nОтправь баркод сообщением — переключу.",
-      { inline_keyboard: [[{ text: "◀️ Назад", callback_data: "s:open" }]] }, edit);
+  const L0 = dict(c.lang);
+  if (what === "today") { await todayCard(c); return ""; }
+  if (what === "cal") { await deadlines(c, undefined, edit); return ""; }
+  if (what === "caloff") {
+    await db.updateUser(c.env, c.chatId, { cal_url: null, cal_hash: null });
+    await c.env.DB.prepare("DELETE FROM deadlines WHERE chat_id = ?").bind(c.chatId).run();
+    u.cal_url = null;
+    await show(c, L0.cal_off, { inline_keyboard: [[{ text: L0.btn_back, callback_data: "s:open" }]] }, edit);
     return "";
   }
-  let changed = false;
+  if (what === "person") {
+    await show(c, `🎫 ${L0.ask_barcode}`, { inline_keyboard: [[{ text: L0.btn_back, callback_data: "s:open" }]] }, edit);
+    return "";
+  }
+
+  let toast = "";
   if (what === "lead") {
     u.lead_min = cycle(LEADS, u.lead_min);
     await db.updateUser(c.env, c.chatId, { lead_min: u.lead_min });
-    changed = true;
+    toast = u.lead_min ? dict(c.lang).s_remind_at(u.lead_min) : dict(c.lang).s_remind_off;
   }
+  if (what === "lang") {
+    c.lang = u.lang = c.lang === "en" ? "ru" : "en";
+    await db.updateUser(c.env, c.chatId, { lang: u.lang });
+    await setMenuButton(c.env, c.chatId, u);
+    await post(c.env, c.chatId, { text: dict(c.lang).welcome(u.lead_min || 20), markup: menuKeyboard(c.env, u) });
+    edit = false;                                   // настройки придут новым сообщением, со свежим меню
+  }
+
+  const L = dict(c.lang);
+  const people = await loadPeople(c.env);
   const owner = (people.find(p => p.slug === u.person) || {}).owner || u.person;
-  await show(c, X.settingsText(u, owner), { inline_keyboard: [
-    [{ text: "🔔 " + (u.lead_min ? "за " + u.lead_min + " мин" : "выключено"), callback_data: "s:lead" }],
-    [{ text: "👀 Пример напоминания", callback_data: "t" }, { text: "🎫 Другой баркод", callback_data: "s:person" }],
+  await show(c, X.settingsText(u, owner, c.lang), { inline_keyboard: [
+    [{ text: "🔔 " + (u.lead_min ? L.s_remind_at(u.lead_min) : L.s_remind_off), callback_data: "s:lead" }],
+    [{ text: L.btn_today, callback_data: "s:today" }, { text: L.btn_preview, callback_data: "t" }],
+    [{ text: L.btn_moodle, callback_data: "s:cal" }],
+    [{ text: L.btn_lang, callback_data: "s:lang" }, { text: L.btn_barcode, callback_data: "s:person" }],
   ] }, edit);
-  return changed ? (u.lead_min ? `Напомню за ${u.lead_min} мин` : "Напоминания выключены") : "";
+  return toast;
 }

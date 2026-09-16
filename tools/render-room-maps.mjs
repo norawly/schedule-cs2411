@@ -17,7 +17,7 @@ const PUB = path.join(ROOT, "public");
 const OUT = path.join(PUB, "map", "rooms");
 const D = JSON.parse(fs.readFileSync(path.join(PUB, "map", "floors.json"), "utf8"));
 
-const W = 1280, H = 640, ACCENT = "#ff7849", FONT = "Helvetica Neue, Helvetica, Arial, sans-serif";
+const W = 1280, H = 960, ACCENT = "#ff7849", FONT = "Helvetica Neue, Helvetica, Arial, sans-serif";
 
 /* номер без буквы на конце: C1.2.221K → «2.221»; названия — в нижнем регистре */
 const mapKey = room => {
@@ -62,7 +62,7 @@ const ICON = { wcs: "#7c5cf0", stairs: "#2f6feb", escapes: "#16a34a" };
 
 function compose(f, r, label) {
   const b = bbox([r.poly]);
-  const cw = 380, ch = cw * H / W, u = cw / W;             // u — единиц плана на пиксель
+  const cw = 430, ch = cw * H / W, u = cw / W;             // u — единиц плана на пиксель
   const x = Math.max(PLAN.x1 - 20, Math.min(b.cx - cw / 2, PLAN.x2 + 20 - cw));
   const y = Math.max(PLAN.y1 - 30, Math.min(b.cy - ch / 2 + 12, PLAN.y2 + 30 - ch));
   const block = (r.id.match(/^C1\.(\d)\./i) || [])[1];

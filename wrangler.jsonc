@@ -3,7 +3,7 @@
   "main": "worker/index.js",
   "compatibility_date": "2026-09-02",
   // перед деплоем: страницы людей + json для бота
-  "build": { "command": "python3 tools/build-pages.py && node tools/export-json.mjs && node tools/render-room-maps.mjs" },
+  "build": { "command": "python3 tools/build-pages.py && node tools/export-json.mjs && node tools/render-room-maps.mjs && node tools/render-day-cards.mjs" },
   "assets": {
     "directory": "./public",
     "binding": "ASSETS",

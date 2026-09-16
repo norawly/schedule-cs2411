@@ -134,12 +134,7 @@ var WHO=S.owner||S.group||"";
 document.title="Schedule · "+WHO;
 $("gname").innerHTML='<span class="wide">Schedule · </span>'+esc(WHO);
 $("gmeta").textContent=[S.group,T.name||S.period,S.year].filter(Boolean).join(" · ");
-(function(){
-  var used={}; KEYS.forEach(function(k){ rawDay(k).forEach(function(it){ used[kindKey(it)]=1; }); });
-  var html=Object.keys(KIND).filter(function(x){return used[x];}).map(function(x){
-    return '<span class="lg"><i style="background:'+KIND[x].c+'"></i>'+esc(KIND[x].label)+"</span>"; }).join("");
-  $("legend").innerHTML=html; $("legendM").innerHTML=html;
-})();
+
 
 /* ============ календарь недели (десктоп) ============ */
 var body=$("weekBody");
@@ -229,11 +224,10 @@ function weekLabel(){
   $("weekLabel").textContent=a.date.getDate()+(one?"":" "+MON[a.date.getMonth()])+" – "+fmtShort(b.date);
   var tw=TODAY>=0?Math.floor(TODAY/6):-1;
   var st=dayState(a.date), stEnd=dayState(b.date);
-  var hint = week===tw ? "эта неделя"
-    : (week===tw+1 ? "следующая неделя"
-    : (st.kind==="exams"||stEnd.kind==="exams" ? "сессия"
+  /* без «эта неделя» — пишем только то, что не видно по датам */
+  var hint = st.kind==="exams"||stEnd.kind==="exams" ? "сессия"
     : (st.kind==="vacation" ? "каникулы"
-    : "неделя "+(week+1)+" из "+WEEKS)));
+    : (week===tw||week===tw+1 ? "" : "неделя "+(week+1)+" из "+WEEKS));
   $("weekHint").textContent=hint;
   $("prevWeek").disabled = week<=0;
   $("nextWeek").disabled = week>=WEEKS-1;
@@ -299,15 +293,21 @@ function buildMobile(){
         r.innerHTML=
           '<span class="r-time"><b>'+hhmm(gr.s)+"</b><i>"+hhmm(gr.e)+"</i></span>"+
           '<span class="r-main"><span class="r-sub">'+esc(it.subject)+"</span>"+
-            '<span class="r-meta">'+esc(TYPE[it.type]||"Занятие")+(it.teacher?" · "+esc(it.teacher):"")+"</span></span>"+
+            '<span class="r-meta">'+esc([bldg(it)?bldgShort(it):"",it.teacher||""].filter(Boolean).join(" · "))+"</span></span>"+
           '<span class="r-room'+(it.online?" on":"")+
             (!it.online&&roomShort(it.room).length>7?" long":"")+'"><b>'+
             (it.online?"Онлайн":esc(roomShort(it.room)||"—"))+"</b>"+
-            (!it.online&&bldg(it)?"<i>"+esc(bldgShort(it))+"</i>":"")+
+            '<i>'+esc((TYPE[it.type]||"Занятие").toLowerCase())+"</i>"+
           "</span>";
         r.onclick=function(){ openCard(gr,day); };
         rows.appendChild(r);
       });
+      if(idx===TODAY){                       /* сегодня начинаем с текущей пары — без прокрутки */
+        rows.className="rows hide-past";
+        var tgl=el("button","showpast"); tgl.type="button"; tgl.hidden=true;
+        tgl.onclick=function(){ rows.classList.toggle("hide-past"); markPast(); };
+        page.appendChild(tgl);
+      }
       page.appendChild(rows);
     }
     pager.appendChild(page);
@@ -339,9 +339,6 @@ function syncTabs(){
     t.classList.toggle("today",(w*6+s)===TODAY);
     t.classList.toggle("off",dayState(day.date).kind!=="study");
   }
-  var tw=TODAY>=0?Math.floor(TODAY/6):-1;
-  $("mWeek").textContent = i>=DAYS.length ? "конец триместра"
-    : (w===tw?"эта неделя":(w===tw+1?"следующая неделя":fmtShort(DAYS[w*6].date)+" – "+fmtShort(DAYS[Math.min(DAYS.length-1,w*6+5)].date)));
 }
 function goPage(i,smooth){
   i=Math.max(0,Math.min(DAYS.length,i));
@@ -397,11 +394,74 @@ function renderStatus(){
   timerTo=new Date(today0.getTime()+(off*1440+(r.live?r.gr.re:r.gr.rs))*60000);
 }
 function tick(){
-  var n=$("tick"); if(!n||!timerTo) return;
-  var left=Math.max(0,Math.floor((timerTo-new Date())/1000));
-  if(left<=0){ renderStatus(); return; }
+  var n=$("tick");
+  if(n&&timerTo){
+    var left=Math.max(0,Math.floor((timerTo-new Date())/1000));
+    if(left<=0){ renderStatus(); renderNext(); }
+    else n.textContent=clock(left);
+  }
+  if(nextTo){
+    var l2=Math.max(0,Math.floor((nextTo-new Date())/1000));
+    if(l2<=0) renderNext();
+    else { var nodes=document.querySelectorAll(".nu-t");
+      for(var i=0;i<nodes.length;i++) nodes[i].textContent=clock(l2); }
+  }
+  moveNow();
+}
+function clock(left){
   var h=Math.floor(left/3600), m=Math.floor(left%3600/60), s=left%60;
-  n.textContent=(h?h+":"+(m<10?"0":"")+m:m)+":"+(s<10?"0":"")+s;
+  if(h>=10) return h+" ч "+m+" мин";
+  return (h?h+":"+(m<10?"0":"")+m:m)+":"+(s<10?"0":"")+s;
+}
+
+/* ============ следующая пара (на месте легенды) ============ */
+var nextTo=null;
+/* пары, которые ещё впереди: сегодня после текущей минуты, дальше — по дням */
+function upcomingList(max){
+  var out=[], n=nowMin();
+  for(var d=(TODAY>=0?TODAY:CUR); d<DAYS.length; d++){
+    if(dayState(DAYS[d].date).kind!=="study") continue;
+    var b=blocks(DAYS[d].key);
+    for(var j=0;j<b.length;j++){
+      if(d===TODAY && b[j].rs<=n) continue;
+      out.push({gr:b[j],day:DAYS[d],i:d});
+      if(out.length>=max) return out;
+    }
+  }
+  return out;
+}
+function renderNext(){
+  var r=findNext(), list=upcomingList(2);
+  var pick=(r&&r.live)?list[0]:list[1];          /* не повторяем то, что уже в статусе */
+  var hosts=[$("nextUp"),$("nextUpM")];
+  if(!pick){
+    hosts.forEach(function(h){ if(h){ h.className="nextup empty"; h.innerHTML="<span>Дальше пар нет</span>"; h.onclick=null; } });
+    nextTo=null; return;
+  }
+  var it=pick.gr.it, kd=kindOf(it), today0=new Date(); today0.setHours(0,0,0,0);
+  var off=Math.round((pick.day.date-today0)/86400000);
+  var when=off===0?"":(off===1?"завтра":SHORT[pick.day.key].toLowerCase()+" "+pick.day.date.getDate());
+  var html='<span class="nu-l">'+((r&&r.live)?"Следующая":"Потом")+(when?" · "+esc(when):"")+"</span>"+
+    '<span class="nu-s">'+esc(it.subject)+"</span>"+
+    '<span class="nu-r'+(it.online?" on":"")+'">'+(it.online?"Онлайн":esc(roomShort(it.room)||"—"))+"</span>"+
+    '<span class="nu-t">--:--</span>';
+  hosts.forEach(function(h){
+    if(!h) return;
+    h.className="nextup";
+    h.style.setProperty("--c",kd.c);
+    h.innerHTML=html;
+    h.onclick=function(){ openCard(pick.gr,pick.day); };
+  });
+  nextTo=new Date(today0.getTime()+(off*1440+pick.gr.rs)*60000);
+}
+
+/* красная полоска времени едет вниз сама */
+function moveNow(){
+  var ln=body.querySelector(".nowline");
+  if(!ln) return;
+  var d=new Date(), m=d.getHours()*60+d.getMinutes()+d.getSeconds()/60;
+  if(m<G0||m>G1){ ln.style.display="none"; return; }
+  ln.style.display=""; ln.style.top=pct(m)+"%";
 }
 
 /* ============ карточка пары + место под карту ============ */
@@ -532,10 +592,23 @@ function markPast(){
       nodes[i].classList.toggle("live",n>=g.rs&&n<g.re);
     }
   });
+  if(!page) return;
+  /* прошедшие пары прячем, чтобы день начинался с текущей; всё можно вернуть кнопкой */
+  var rows=page.querySelector(".rows"), tgl=page.querySelector(".showpast");
+  if(!rows||!tgl) return;
+  var done=rows.querySelectorAll(".row.past").length, hidden=rows.classList.contains("hide-past");
+  tgl.hidden=!done;
+  tgl.textContent=hidden?("Показать прошедшие · "+done):"Скрыть прошедшие";
+  var kids=rows.children;
+  for(var j=0;j<kids.length;j++)
+    if(kids[j].classList.contains("mgap")){
+      var nxt=kids[j+1];
+      kids[j].classList.toggle("off",!!(hidden&&nxt&&nxt.classList.contains("past")));
+    }
 }
 
 /* ============ старт ============ */
-buildMobile(); buildTabs(); renderWeek(0); renderStatus();
+buildMobile(); buildTabs(); renderWeek(0); renderStatus(); renderNext();
 var START=(function(){
   if(TODAY>=0 && dayState(DAYS[TODAY].date).kind==="study" && blocks(DAYS[TODAY].key).length) return TODAY;
   for(var i=week*6;i<DAYS.length;i++)
@@ -564,13 +637,13 @@ $("todayBtn").querySelector(".tt").textContent=fmtShort(new Date());
   }
 })();
 tick(); setInterval(tick,1000);
-setInterval(function(){ renderStatus(); tick(); markPast(); },30000);
+setInterval(function(){ renderStatus(); renderNext(); tick(); markPast(); },30000);
 var rz;
 window.addEventListener("resize",function(){
   clearTimeout(rz); rz=setTimeout(function(){ fitEvents(); goPage(curPage(),false); },140);
 });
 document.addEventListener("visibilitychange",function(){
-  if(!document.hidden){ renderStatus(); tick(); markPast(); }
+  if(!document.hidden){ renderStatus(); renderNext(); tick(); markPast(); }
 });
 /* офлайн-кэш только на боевом домене, локально он мешает разработке */
 /* убираем плашку загрузки, когда всё нарисовано */
