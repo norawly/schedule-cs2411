@@ -50,7 +50,7 @@ for (const slug of fs.readdirSync(PUB)) {
   if (!fs.existsSync(src)) continue;
   const box = { window: {} };
   vm.runInNewContext(fs.readFileSync(src, "utf8"), box);
-  for (const day of Object.values(box.window.SCHEDULE.days || {})) for (const it of day) {
+  for (const day of Object.values((box.window.SCHEDULE || {}).days || {})) for (const it of day) {
     if (it.online || !it.room || (it.building && !/главный/i.test(it.building))) continue;
     if (!wanted.has(mapKey(it.room))) wanted.set(mapKey(it.room), it.room.replace(/^C1\./i, ""));
   }

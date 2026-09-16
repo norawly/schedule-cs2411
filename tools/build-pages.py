@@ -54,7 +54,7 @@ def chooser(people, prefix, heading, note):
     cards = "\n".join(
         f'    <a class="p" href="{prefix}{slug}/"><b>{html.escape(owner)}</b>'
         f'<span>{html.escape(group or "расписание")}</span><i>→</i></a>'
-        for slug, owner, group in people)
+        for slug, owner, group, *_ in people)
     return f"""<!doctype html>
 <html lang="ru">
 <head>
@@ -102,17 +102,19 @@ for slug in os.listdir(PUB):
         continue
     src = open(src_path, encoding="utf-8").read()
     owner = field(src, "owner") or slug.capitalize()
-    people.append((slug, owner, field(src, "group")))
+    hidden = bool(re.search(r"hidden\s*:\s*true", src))
+    people.append((slug, owner, field(src, "group"), hidden))
 
 people.sort(key=lambda p: (p[0] != FIRST, p[0]))
+shown = [p for p in people if not p[3]]     # скрытые — только по прямой ссылке и через бота
 
-for slug, owner, _ in people:
+for slug, owner, _, _hidden in people:
     title = f"Schedule · {owner}"
     page = TEMPLATE.replace("{{title}}", html.escape(title)).replace("{{owner}}", html.escape(owner))
     write(os.path.join(PUB, slug, "index.html"), page)
     write(os.path.join(PUB, slug, "manifest.webmanifest"), manifest(owner))
 
-write(os.path.join(PUB, "index.html"), chooser(people, "", "Schedule", "Чьё расписание открыть?"))
-write(os.path.join(PUB, "404.html"), chooser(people, "/", "Такого расписания нет", "Есть такие:"))
+write(os.path.join(PUB, "index.html"), chooser(shown, "", "Schedule", "Чьё расписание открыть?"))
+write(os.path.join(PUB, "404.html"), chooser(shown, "/", "Такого расписания нет", "Есть такие:"))
 
-print("расписания:", ", ".join(f"/{s}/" for s, _, _ in people))
+print("расписания:", ", ".join(f"/{s}/" + (" (скрыто)" if h else "") for s, _, _, h in people))

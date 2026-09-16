@@ -132,8 +132,14 @@ a{color:inherit;text-decoration:none}
   font-variant-numeric:tabular-nums;line-height:1}
 
 .cbody{position:relative;flex:1;min-height:0;
-  background-image:linear-gradient(to bottom,var(--line-soft) 1px,transparent 1px);
-  background-size:100% calc(100%/var(--hours));}
+  /* линии по часам + чередующиеся полосы, чтобы строки не сливались */
+  background-image:
+    linear-gradient(to bottom,var(--line-soft) 1px,transparent 1px),
+    repeating-linear-gradient(to bottom,
+      color-mix(in srgb,var(--muted) 7%,transparent) 0 calc(100%/var(--hours)),
+      transparent calc(100%/var(--hours)) calc(200%/var(--hours)));
+  background-size:100% calc(100%/var(--hours)), 100% 100%;
+  background-position:0 var(--top), 0 var(--top);}
 .col.today .cbody{background-color:color-mix(in srgb,var(--accent) 3%,transparent)}
 .cbody.nostudy{background-image:none;background-color:color-mix(in srgb,var(--faint) 6%,transparent);
   display:grid;place-items:center}
@@ -200,6 +206,7 @@ a{color:inherit;text-decoration:none}
 .row{display:grid;grid-template-columns:42px 1fr 84px;align-items:center;gap:9px;width:100%;text-align:left;
   padding:9px 10px;border:1px solid var(--line);border-left:3px solid var(--c);border-radius:11px;
   background:var(--surface)}
+.row:nth-of-type(even){background:color-mix(in srgb,var(--muted) 7%,var(--surface))}
 .row.online{border-style:dashed;border-left-style:solid}
 .row.past{opacity:.45}
 .row.live{box-shadow:inset 0 0 0 1px var(--c)}

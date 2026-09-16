@@ -576,10 +576,14 @@ document.addEventListener("visibilitychange",function(){
 /* убираем плашку загрузки, когда всё нарисовано */
 (function(){
   var b=$("boot"); if(!b) return;
-  requestAnimationFrame(function(){
-    setTimeout(function(){ b.classList.add("gone");
-      setTimeout(function(){ b.remove(); },320); },80);
-  });
+  var done=false;
+  function hide(){                      /* и в фоновой вкладке тоже: там rAF не срабатывает */
+    if(done) return; done=true;
+    b.classList.add("gone");
+    setTimeout(function(){ b.remove(); },320);
+  }
+  requestAnimationFrame(function(){ setTimeout(hide,80); });
+  setTimeout(hide,600);
 })();
 
 if("serviceWorker" in navigator){

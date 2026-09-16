@@ -5,6 +5,7 @@ import * as db from "./db.js";
 import { tg } from "./tg.js";
 
 const LEADS = [20, 30, 10, 15, 5, 0];          // по кругу: 20 → 30 → 10 → 15 → 5 → выкл
+const BARCODE = /^\d{5,8}$/;                  // баркод студента
 const cycle = (list, v) => list[(list.indexOf(v) + 1) % list.length];
 
 /* ---------- данные из статики ---------- */
@@ -97,7 +98,8 @@ async function onText(c, text) {
   const cmd = text.split(/\s+/)[0].toLowerCase().replace(/@\w+$/, "");
   if (cmd === "/start") return start(c);
   if (cmd === "/id") return send(c.env, c.chatId, `Твой chat id: <code>${c.chatId}</code>`);
-  if (!c.user) return send(c.env, c.chatId, "👋 Чтобы пользоваться ботом, нажми /start");
+  if (BARCODE.test(text)) return byBarcode(c, text);
+  if (!c.user) return send(c.env, c.chatId, "🎫 Отправь свой баркод — найду расписание. Или нажми /start");
   if (c.user.status === "pending") return pendingNotice(c);
 
   if (cmd === "/next" || text === "⏭ Следующая пара" || text === "⏭ Следующая") return nextCard(c.env, c.chatId, c.user, c.now);
@@ -124,13 +126,38 @@ async function start(c) {
     if (c.user.status === "pending") return pendingNotice(c, true);
     return welcome(c.env, c.chatId, c.user, c.now);
   }
-  if (await db.countUsers(c.env) >= +(c.env.MAX_USERS || 60))
-    return send(c.env, c.chatId, "😔 Мест больше нет — бот только для своих.");
-  const people = await loadPeople(c.env);
   return send(c.env, c.chatId,
     `👋 Привет, ${X.esc(c.from.first_name || "")}!\n\n` +
-    "Я <b>Schedule</b> — напоминаю о парах и показываю, где кабинет.\n\n<b>Чьё расписание?</b>",
-    { inline_keyboard: people.map(p => [{ text: p.owner + (p.group ? " · " + p.group : ""), callback_data: "p:" + p.slug }]) });
+    "Я <b>Schedule</b> — напоминаю о парах за 20 минут и показываю, где кабинет.\n\n" +
+    "🎫 Отправь свой <b>баркод</b> — найду твоё расписание.");
+}
+
+/* вход по баркоду: есть такой — сразу расписание, нет — к кому обратиться */
+async function byBarcode(c, code) {
+  const people = await loadPeople(c.env);
+  const p = people.find(x => x.barcode && x.barcode === code);
+  if (!p) return send(c.env, c.chatId,
+    `🤔 Баркода <b>${X.esc(code)}</b> у меня нет.\n\n` +
+    `Напиши ${X.esc(c.env.ADMIN_CONTACT || "админу")} — он добавит твоё расписание, и всё заработает.`);
+
+  if (c.user) {                                   // смена расписания у своих
+    await db.updateUser(c.env, c.chatId, { person: p.slug });
+    c.user.person = p.slug;
+    await setMenuButton(c.env, c.chatId, p.slug);
+    await send(c.env, c.chatId, `✅ Переключил на баркод <b>${X.esc(code)}</b>.`, menuKeyboard(c.env, p.slug));
+    return nextCard(c.env, c.chatId, c.user, c.now);
+  }
+  if (await db.countUsers(c.env) >= +(c.env.MAX_USERS || 60))
+    return send(c.env, c.chatId, "😔 Мест больше нет — бот только для своих.");
+
+  const first = !(await db.adminExists(c.env));
+  const name = [c.from.first_name, c.from.last_name].filter(Boolean).join(" ");
+  await db.createUser(c.env, { chat_id: c.chatId, name, username: c.from.username,
+                               person: p.slug, status: first ? "admin" : "approved" });
+  const user = await db.getUser(c.env, c.chatId);
+  c.user = user;
+  await send(c.env, c.chatId, `✅ Нашёл расписание по баркоду <b>${X.esc(code)}</b>.`);
+  return welcome(c.env, c.chatId, user, c.now);
 }
 
 async function pickPerson(c, slug) {
@@ -315,10 +342,8 @@ async function settings(c, what, edit) {
   const u = c.user;
   const people = await loadPeople(c.env);
   if (what === "person") {
-    await show(c, "👤 <b>Чьё расписание?</b>", { inline_keyboard: [
-      ...people.map(p => [{ text: (p.slug === u.person ? "• " : "") + p.owner + (p.group ? " · " + p.group : ""), callback_data: "p:" + p.slug }]),
-      [{ text: "◀️ Назад", callback_data: "s:open" }],
-    ] }, edit);
+    await show(c, "🎫 <b>Другое расписание</b>\n\nОтправь баркод сообщением — переключу.",
+      { inline_keyboard: [[{ text: "◀️ Назад", callback_data: "s:open" }]] }, edit);
     return "";
   }
   let changed = false;
@@ -330,7 +355,7 @@ async function settings(c, what, edit) {
   const owner = (people.find(p => p.slug === u.person) || {}).owner || u.person;
   await show(c, X.settingsText(u, owner), { inline_keyboard: [
     [{ text: "🔔 " + (u.lead_min ? "за " + u.lead_min + " мин" : "выключено"), callback_data: "s:lead" }],
-    [{ text: "👀 Пример напоминания", callback_data: "t" }, { text: "👤 Сменить расписание", callback_data: "s:person" }],
+    [{ text: "👀 Пример напоминания", callback_data: "t" }, { text: "🎫 Другой баркод", callback_data: "s:person" }],
   ] }, edit);
   return changed ? (u.lead_min ? `Напомню за ${u.lead_min} мин` : "Напоминания выключены") : "";
 }
