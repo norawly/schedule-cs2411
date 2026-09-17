@@ -1,36 +1,27 @@
-/* Чистота чата: бот держит не больше двух своих сообщений.
-   Новое приходит — предыдущая карточка пары переписывается на актуальную («идёт сейчас», «прошла»),
-   а всё, что старше, удаляется. */
+/* Чистота чата. У каждого вида сообщений свой лимит, и виды не вытесняют друг друга:
+   карточки пар — две последние (старая переписывается на «идёт»/«прошла»),
+   уведомления о дедлайнах — две, экраны (настройки, списки) — один, сообщение с меню — одно.
+   Поэтому новый дедлайн больше не уносит карточку пары. */
 import * as T from "./sched.js";
 import * as X from "./text.js";
 import { tg } from "./tg.js";
 
-const KEEP = 2;
+const LIMIT = { class: 2, deadline: 2, info: 1, menu: 1 };
 const OPTS = { parse_mode: "HTML", link_preview_options: { is_disabled: true } };
 
-const rows = (e, chatId) =>
-  e.DB.prepare("SELECT * FROM msgs WHERE chat_id = ? ORDER BY at DESC").bind(chatId).all().then(r => r.results);
+const rows = (e, chatId, kind) =>
+  e.DB.prepare("SELECT * FROM msgs WHERE chat_id = ? AND kind = ? ORDER BY at DESC").bind(chatId, kind).all().then(r => r.results);
 const forget = (e, chatId, id) =>
   e.DB.prepare("DELETE FROM msgs WHERE chat_id = ? AND message_id = ?").bind(chatId, id).run();
 const remember = (e, chatId, id, kind, ref) =>
   e.DB.prepare("INSERT OR REPLACE INTO msgs (chat_id, message_id, kind, at, ref) VALUES (?, ?, ?, ?, ?)")
     .bind(chatId, id, kind, Date.now(), ref ? JSON.stringify(ref) : null).run();
 
-/* последнее сообщение бота в чате — чтобы не слать дубль той же карточки */
-export async function newest(e, chatId) {
-  const r = await e.DB.prepare("SELECT * FROM msgs WHERE chat_id = ? ORDER BY at DESC LIMIT 1").bind(chatId).first();
+/* последняя карточка пары — чтобы не слать дубль той же пары */
+export async function newest(e, chatId, kind = "class") {
+  const r = await e.DB.prepare("SELECT * FROM msgs WHERE chat_id = ? AND kind = ? ORDER BY at DESC LIMIT 1").bind(chatId, kind).first();
   if (!r) return null;
   try { r.data = JSON.parse(r.ref || "null"); } catch { r.data = null; }
-  return r;
-}
-
-/* переписать уже отправленную карточку (та же пара — новое состояние) */
-export async function replace(e, chatId, mid, { photo, text, markup, kind = "class", ref }) {
-  const r = photo
-    ? await tg(e, "editMessageCaption", { chat_id: chatId, message_id: mid, caption: text, parse_mode: "HTML", reply_markup: markup || { inline_keyboard: [] } })
-    : await tg(e, "editMessageText", { chat_id: chatId, message_id: mid, text, ...OPTS, reply_markup: markup || { inline_keyboard: [] } });
-  if (!r.ok && !/not modified/i.test(r.description || "")) return null;
-  await remember(e, chatId, mid, kind, ref);
   return r;
 }
 
@@ -42,43 +33,59 @@ export async function drop(e, chatId, id) {
 /* карточку пары переписываем под текущее время: ещё будет → идёт → прошла */
 async function refresh(e, chatId, row, load) {
   let ref; try { ref = JSON.parse(row.ref || "null"); } catch { ref = null; }
-  if (row.kind !== "class" || !ref) return;
+  if (!ref) return;
   const S = await load(ref.slug);
   if (!S) return;
   const g = T.dayBlocks(S, ref.iso).find(x => x.rs === ref.rs);
   if (!g) return;
-  const now = T.localNow(e);
-  const state = X.stateOf(g, ref.iso, now);
-  if (state.kind === ref.state) return;                        // ничего не поменялось
+  const state = X.stateOf(g, ref.iso, T.localNow(e));
+  if (state.kind === ref.state || state.kind === "soon" || state.kind === "next") return;  // обратный отсчёт не дёргаем
   const text = X.classCard(g, ref.info, state, ref.lang);
-  const markup = { inline_keyboard: [] };                      // у прошлой карточки кнопки ни к чему
+  const markup = { inline_keyboard: [] };
   const r = ref.photo
     ? await tg(e, "editMessageCaption", { chat_id: chatId, message_id: row.message_id, caption: text, parse_mode: "HTML", reply_markup: markup })
     : await tg(e, "editMessageText", { chat_id: chatId, message_id: row.message_id, text, ...OPTS, reply_markup: markup });
-  if (r.ok) await remember(e, chatId, row.message_id, row.kind, { ...ref, state: state.kind });
+  if (r.ok) await e.DB.prepare("UPDATE msgs SET ref = ? WHERE chat_id = ? AND message_id = ?")
+    .bind(JSON.stringify({ ...ref, state: state.kind }), chatId, row.message_id).run();
 }
 
-/* обновить прошлые карточки и убрать лишние сообщения */
-export async function tidy(e, chatId, load, keep = KEEP) {
-  const list = await rows(e, chatId);
-  for (const row of list.slice(0, keep)) await refresh(e, chatId, row, load).catch(() => {});
-  for (const row of list.slice(keep)) await drop(e, chatId, row.message_id).catch(() => {});
+async function prune(e, chatId, kind) {
+  for (const row of (await rows(e, chatId, kind)).slice(LIMIT[kind] || 1))
+    await drop(e, chatId, row.message_id).catch(() => {});
 }
 
-/* отправить сообщение боту в чат и сразу прибрать за собой */
+/* пересчитать карточки пар по времени и убрать лишнее */
+export async function tidy(e, chatId, load) {
+  for (const row of await rows(e, chatId, "class")) await refresh(e, chatId, row, load).catch(() => {});
+  await prune(e, chatId, "class");
+}
+
+/* отправить и прибрать за собой — только среди сообщений того же вида */
 export async function post(e, chatId, { kind = "info", photo, text, markup, ref }, load) {
-  await tidy(e, chatId, load, KEEP - 1);            // место под новое сообщение
+  if (kind === "class") for (const row of await rows(e, chatId, "class")) await refresh(e, chatId, row, load).catch(() => {});
   const r = photo
     ? await tg(e, "sendPhoto", { chat_id: chatId, photo, caption: text, parse_mode: "HTML", ...(markup ? { reply_markup: markup } : {}) })
     : await tg(e, "sendMessage", { chat_id: chatId, text, ...OPTS, ...(markup ? { reply_markup: markup } : {}) });
-  if (r.ok && r.result) await remember(e, chatId, r.result.message_id, kind, ref);
+  if (r.ok && r.result) {
+    await remember(e, chatId, r.result.message_id, kind, ref);
+    await prune(e, chatId, kind);
+  }
   return r;
 }
 
-/* правка своего же сообщения (кнопки настроек) — счётчик сообщений не растёт */
+/* правка своего сообщения (кнопки экранов) */
 export async function edit(e, chatId, mid, { text, markup, kind = "info", ref }) {
   const r = await tg(e, "editMessageText",
     { chat_id: chatId, message_id: mid, text, ...OPTS, reply_markup: markup || { inline_keyboard: [] } });
   if (r.ok) { await remember(e, chatId, mid, kind, ref); return r; }
   return /not modified/i.test(r.description || "") ? r : null;
+}
+
+export async function replace(e, chatId, mid, { photo, text, markup, kind = "class", ref }) {
+  const r = photo
+    ? await tg(e, "editMessageCaption", { chat_id: chatId, message_id: mid, caption: text, parse_mode: "HTML", reply_markup: markup || { inline_keyboard: [] } })
+    : await tg(e, "editMessageText", { chat_id: chatId, message_id: mid, text, ...OPTS, reply_markup: markup || { inline_keyboard: [] } });
+  if (!r.ok && !/not modified/i.test(r.description || "")) return null;
+  await remember(e, chatId, mid, kind, ref);
+  return r;
 }

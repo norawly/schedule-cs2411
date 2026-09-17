@@ -23,6 +23,7 @@ const KIND = {
   "practice":        "#1a9e5f",
   "lecture-online":  "#7c5cf0",
   "practice-online": "#c97a10",
+  "other":           "#6b7280",
 };
 const esc = s => String(s == null ? "" : s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 /* грубая ширина строки в пикселях — чтобы обрезать длинные названия */
@@ -36,6 +37,7 @@ function fit(s, size, max) {
 /* строка «где это»: кабинет, этаж и блок — или «Онлайн» */
 function place(it, L, lang) {
   if (it.online) return L.online;
+  if (!it.room) return "";
   const bits = [placeName(roomShort(it.room), lang)];
   const fl = floorOf(it.room), bl = blockOf(it.room);
   if (it.building && !/главный/i.test(it.building)) bits.push(placeName(it.building, lang));
@@ -56,7 +58,7 @@ function card(S, key, lang) {
   const top = area[0] + (area[1] - area[0] - (h * gs.length + gap * (gs.length - 1))) / 2;
   const rows = gs.map((g, i) => {
     const it = g.it, y = top + i * (h + gap);
-    const color = KIND[(it.type === "lecture" ? "lecture" : "practice") + (it.online ? "-online" : "")] || KIND.practice;
+    const color = it.type === "other" ? KIND.other : KIND[(it.type === "lecture" ? "lecture" : "practice") + (it.online ? "-online" : "")] || KIND.practice;
     const title = fit(subjectName(it.subject, lang), 38, 700);
     const type = L[it.type] || L.practice;
     const shift = h > 150 ? 0 : (150 - h) / 2;      // при плотном дне сдвигаем строки ближе

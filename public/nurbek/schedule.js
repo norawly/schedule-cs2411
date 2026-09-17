@@ -7,7 +7,7 @@ window.SCHEDULE = {
   group: "",
   year: "2026–2027",
   period: "Осенний триместр",
-  updated: "2026-09-14",
+  updated: "2026-09-17",
 
   /* Границы триместра — из академического календаря 2026–2027 */
   term: {
@@ -24,7 +24,8 @@ window.SCHEDULE = {
     "Управление проектами":              "PM",
     "Методы и инструменты исследования": "RMT",
     "Основы компьютерной графики":       "CGF",
-    "Философия":                         "PHIL"
+    "Философия":                         "PHIL",
+    "BRONX":                             "BRONX"
   },
 
   days: {
@@ -62,6 +63,7 @@ window.SCHEDULE = {
     ],
 
     fri: [
+      { start:"13:00", end:"13:50", subject:"Методы и инструменты исследования", type:"practice", code:"RMT53-EN-P175",  room:"106P", building:"Корпус Коркем", teacher:"Нургалиев К.С." },
       { start:"14:00", end:"14:50", subject:"Методы и инструменты исследования", type:"practice", code:"RMT53-EN-P175",  room:"106P", building:"Корпус Коркем", teacher:"Нургалиев К.С." },
       { start:"15:00", end:"15:50", subject:"Методы и инструменты исследования", type:"practice", code:"RMT53-EN-P175",  room:"106P", building:"Корпус Коркем", teacher:"Нургалиев К.С." },
       { start:"16:00", end:"16:50", subject:"Философия",                         type:"practice", code:"PHIL51-EN-P514", room:"300P", building:"Корпус Коркем", teacher:"Джубатчанова И.Т." },
@@ -71,10 +73,12 @@ window.SCHEDULE = {
     sat: [
       { start:"12:00", end:"12:50", subject:"Основы компьютерной графики",       type:"practice", code:"CGF53-EN-P49",  room:"307K", building:"Корпус Коркем", teacher:"Шаймерденова Н.Б." },
       { start:"13:05", end:"13:55", subject:"Основы компьютерной графики",       type:"practice", code:"CGF53-EN-P49",  room:"307K", building:"Корпус Коркем", teacher:"Шаймерденова Н.Б." },
-      { start:"14:00", end:"14:50", subject:"Методы и инструменты исследования", type:"practice", code:"RMT53-EN-P175", room:"202P", building:"Корпус Коркем", teacher:"Нургалиев К.С." },
-      { start:"15:00", end:"15:50", subject:"Облачные вычисления",               type:"practice", code:"CC53-EN-P62",   room:"107K", building:"Корпус Коркем", teacher:"Бакиева А.М." }
+      { start:"15:00", end:"15:50", subject:"Облачные вычисления",               type:"practice", code:"CC53-EN-P62",   room:"107K", building:"Корпус Коркем", teacher:"Бакиева А.М." },
+      { start:"16:00", end:"17:30", subject:"BRONX", type:"other", room:"", teacher:"" }
     ],
 
-    sun: []
+    sun: [
+      { start:"13:00", end:"15:00", subject:"BRONX", type:"other", room:"", teacher:"" }
+    ]
   }
 };

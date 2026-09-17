@@ -1,11 +1,11 @@
 /* Логика расписания для бота — та же, что на сайте (public/app.js):
    склейка пар подряд, округление времени, периоды триместра. Даты — строки "YYYY-MM-DD". */
 
-export const KEYS  = ["mon", "tue", "wed", "thu", "fri", "sat"];
-export const SHORT = { mon: "Пн", tue: "Вт", wed: "Ср", thu: "Чт", fri: "Пт", sat: "Сб" };
-export const FULL  = { mon: "Понедельник", tue: "Вторник", wed: "Среда", thu: "Четверг", fri: "Пятница", sat: "Суббота" };
-export const WHEN  = { mon: "в понедельник", tue: "во вторник", wed: "в среду", thu: "в четверг", fri: "в пятницу", sat: "в субботу" };
-export const TYPE  = { lecture: "лекция", practice: "практика", lab: "лабораторная", seminar: "семинар" };
+export const KEYS  = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
+export const SHORT = { mon: "Пн", tue: "Вт", wed: "Ср", thu: "Чт", fri: "Пт", sat: "Сб", sun: "Вс" };
+export const FULL  = { mon: "Понедельник", tue: "Вторник", wed: "Среда", thu: "Четверг", fri: "Пятница", sat: "Суббота", sun: "Воскресенье" };
+export const WHEN  = { mon: "в понедельник", tue: "во вторник", wed: "в среду", thu: "в четверг", fri: "в пятницу", sat: "в субботу", sun: "в воскресенье" };
+export const TYPE  = { lecture: "лекция", practice: "практика", lab: "лабораторная", seminar: "семинар", other: "занятие" };
 const MON  = ["янв", "фев", "мар", "апр", "мая", "июн", "июл", "авг", "сен", "окт", "ноя", "дек"];
 const MONF = ["января", "февраля", "марта", "апреля", "мая", "июня", "июля", "августа", "сентября", "октября", "ноября", "декабря"];
 
@@ -22,13 +22,13 @@ export function dur(m) {
 const at = iso => new Date(iso + "T00:00:00Z");
 export const isoAdd = (iso, n) => { const d = at(iso); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
 export const dowOf = iso => at(iso).getUTCDay();
-export const keyOf = iso => { const w = dowOf(iso); return w === 0 ? null : KEYS[w - 1]; };
+export const keyOf = iso => KEYS[(dowOf(iso) + 6) % 7];
 export const weekStart = iso => isoAdd(iso, -((dowOf(iso) + 6) % 7));
 export const fmtDate = iso => { const d = at(iso); return d.getUTCDate() + " " + MONF[d.getUTCMonth()]; };
 export const fmtShort = iso => { const d = at(iso); return d.getUTCDate() + " " + MON[d.getUTCMonth()]; };
 /* соседний учебный день (воскресенья пропускаем) */
-export const stepDay = (iso, dir) => { let x = isoAdd(iso, dir); if (!keyOf(x)) x = isoAdd(x, dir); return x; };
-export const dayLabel = iso => { const k = keyOf(iso); return (k ? SHORT[k] : "Вс") + " " + at(iso).getUTCDate(); };
+export const stepDay = (iso, dir) => isoAdd(iso, dir);
+export const dayLabel = iso => { const k = keyOf(iso); return SHORT[k] + " " + at(iso).getUTCDate(); };
 
 /* текущее время в Астане (UTC+5); DEV_NOW — для локальной проверки */
 export function localNow(env) {

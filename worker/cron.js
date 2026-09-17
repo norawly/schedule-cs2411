@@ -5,6 +5,7 @@ import * as db from "./db.js";
 import * as M from "./msgs.js";
 import * as moodle from "./moodle.js";
 import { tg, webhookSecret } from "./tg.js";
+import * as G from "./geo.js";
 import { loadSchedule, loader, sendClassCard, post } from "./bot.js";
 import { t as dict, durIn, SUBJECT_EN } from "./i18n.js";
 
@@ -25,15 +26,31 @@ export async function runCron(env, source = "cron") {
     if (budget <= 0) break;
     const S = await loadSchedule(env, u.person);
 
-    /* напоминание перед парой */
-    if (S && u.lead_min > 0) {
-      for (const g of T.dayBlocks(S, now.iso)) {
-        const t = g.rs - u.lead_min;
-        if (now.min >= t && now.min < t + 5 && now.min < g.rs &&
+    /* напоминание перед парой: за сколько — зависит от того, где человек */
+    const lead = G.leadFor(u);
+    const today = S ? T.dayBlocks(S, now.iso) : [];
+    if (lead > 0) {
+      for (const g of today) {
+        const t = g.rs - lead;
+        /* окно шире пяти минут: место могло смениться на «дома» уже после старта окна */
+        const windowEnd = u.geo ? g.rs - 2 : t + 5;
+        if (now.min >= t && now.min < windowEnd && now.min < g.rs &&
             await db.markSent(env, u.chat_id, `${now.iso}:r:${g.rs}`)) {
           await sendClassCard(env, u.chat_id, u, g, now.iso, { kind: "soon", mins: g.rs - now.min });
           budget -= 2;
         }
+      }
+    }
+
+    /* геолокация включена, а где человек — неизвестно: один вопрос перед первой парой дня */
+    if (u.geo && u.lead_min > 0 && today.length && G.placeOf(u) === null) {
+      const first = today.find(g => !g.it.online);
+      const askAt = first ? first.rs - (u.lead_home || 60) - 15 : -1;
+      if (first && now.min >= askAt && now.min < askAt + 5 && await db.markSent(env, u.chat_id, `${now.iso}:ask`)) {
+        const L = dict(u.lang === "en" ? "en" : "ru");
+        await post(env, u.chat_id, { kind: "menu", text: L.geo_ask, markup: {
+          keyboard: [[{ text: L.btn_send_loc, request_location: true }]], resize_keyboard: true, one_time_keyboard: true } });
+        budget -= 2;
       }
     }
     /* карточка прошлой пары сама переписывается, когда пара началась или закончилась */
@@ -122,7 +139,7 @@ function compare(S, events, now, off, lang) {
 export async function ensureWebhook(env, force = false) {
   const secret = await webhookSecret(env.TELEGRAM_TOKEN);
   const url = env.PUBLIC_URL + "/tg/webhook";
-  const want = `${url}|${secret.slice(0, 16)}|v3`;
+  const want = `${url}|${secret.slice(0, 16)}|v4`;
   const prev = await db.getMeta(env, "webhook");
   if (!force && prev === want) return { ok: true, cached: true };
 
@@ -133,7 +150,7 @@ export async function ensureWebhook(env, force = false) {
   }
   const r = await tg(env, "setWebhook", {
     url, secret_token: secret, max_connections: 10,
-    allowed_updates: ["message", "callback_query"],
+    allowed_updates: ["message", "edited_message", "callback_query"],
     drop_pending_updates: !force && !prev,
   });
   if (!r.ok) {
@@ -144,6 +161,7 @@ export async function ensureWebhook(env, force = false) {
     { command: "next", description: "Следующая пара и кабинет на карте" },
     { command: "today", description: "Весь сегодняшний день одной картинкой" },
     { command: "deadlines", description: "Дедлайны из Moodle" },
+    { command: "menu", description: "Вернуть кнопки меню" },
     { command: "settings", description: "Напоминания, язык, расписание" },
     { command: "start", description: "Вход по баркоду" },
   ] });

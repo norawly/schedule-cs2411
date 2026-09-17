@@ -111,7 +111,7 @@ a{color:inherit;text-decoration:none}
 .lg{display:inline-flex;align-items:center;gap:5px;white-space:nowrap}
 .lg i{width:8px;height:8px;border-radius:2px;display:block}
 
-.week-body{flex:1;min-height:0;display:grid;grid-template-columns:52px repeat(6,1fr)}
+.week-body{flex:1;min-height:0;display:grid;grid-template-columns:52px repeat(var(--nd,6),1fr)}
 .week-body.in-r{animation:slideR .2s ease-out}
 .week-body.in-l{animation:slideL .2s ease-out}
 @keyframes slideR{from{opacity:.6;transform:translateX(9px)}to{opacity:1;transform:none}}
@@ -183,7 +183,7 @@ a{color:inherit;text-decoration:none}
   font-size:12px;color:var(--faint);margin:0 2px 7px}
 .mob-bar .legend{margin:0;justify-content:flex-end;gap:2px 9px;font-size:10.5px;flex:1}
 .mob-bar .lg i{width:7px;height:7px}
-.tabs{display:grid;grid-template-columns:repeat(6,1fr);gap:5px;margin-bottom:11px}
+.tabs{display:grid;grid-template-columns:repeat(var(--nd,6),1fr);gap:5px;margin-bottom:11px}
 .tabs button{border:1px solid var(--line);background:var(--surface);border-radius:10px;padding:6px 0 5px;
   display:flex;flex-direction:column;align-items:center;transition:background .15s,border-color .15s}
 .tabs button .d{font-size:10.5px;font-weight:600;color:var(--faint);letter-spacing:.03em}

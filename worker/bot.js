@@ -7,6 +7,7 @@ import * as db from "./db.js";
 import * as M from "./msgs.js";
 import * as moodle from "./moodle.js";
 import { tg } from "./tg.js";
+import * as G from "./geo.js";
 import { t as dict, subject as subjectName, durIn } from "./i18n.js";
 
 const LEADS = [20, 30, 10, 15, 5, 0];          // по кругу: 20 → 30 → 10 → 15 → 5 → выкл
@@ -48,7 +49,8 @@ export const menuKeyboard = (e, user) => {
   const L = dict(langOf(user));
   return {
     keyboard: [
-      [{ text: L.menu_next }, { text: L.menu_settings }],
+      [{ text: L.menu_next }, { text: L.menu_today }],
+      [{ text: L.menu_deadlines }, { text: L.menu_settings }],
       [{ text: L.menu_site, web_app: { url: site(e, user.person) } }],
     ],
     resize_keyboard: true,
@@ -93,6 +95,8 @@ export async function sendClassCard(e, chatId, user, g, iso, state, extraRows = 
 
 /* ---------- вход ---------- */
 export async function handleUpdate(e, update) {
+  const edited = update.edited_message;
+  if (edited) return onLiveLocation(e, edited);
   const msg = update.message, cb = update.callback_query;
   const chat = msg ? msg.chat : cb && cb.message && cb.message.chat;
   const from = msg ? msg.from : cb && cb.from;
@@ -111,6 +115,7 @@ export async function handleUpdate(e, update) {
 
   const c = { env: e, chatId: chat.id, from, user, now: T.localNow(e), lang: langOf(user) };
   if (cb) return onCallback(c, cb);
+  if (msg.location && c.user && c.user.status !== "pending") return onLocation(c, msg);
   if (!msg.text) return;
   await onText(c, msg.text.trim());
   /* свои сообщения тоже убираем — чат остаётся чистым */
@@ -118,6 +123,7 @@ export async function handleUpdate(e, update) {
 }
 
 /* ---------- текст ---------- */
+const isBtn = (text, key) => text === dict("ru")[key] || text === dict("en")[key];
 async function onText(c, text) {
   const L = dict(c.lang);
   const cmd = text.split(/\s+/)[0].toLowerCase().replace(/@\w+$/, "");
@@ -130,10 +136,10 @@ async function onText(c, text) {
   if (cal) return saveCalendar(c, cal);
   if (/lms\.astanait\.edu\.kz\/calendar/.test(text)) return send(c.env, c.chatId, L.cal_bad);
 
-  if (cmd === "/next" || text === L.menu_next || text === dict("ru").menu_next || text === dict("en").menu_next)
-    return nextCard(c.env, c.chatId, c.user, c.now);
-  if (cmd === "/settings" || text === L.menu_settings || text === dict("ru").menu_settings || text === dict("en").menu_settings)
-    return settings(c, "open");
+  if (cmd === "/next" || isBtn(text, "menu_next")) return nextCard(c.env, c.chatId, c.user, c.now);
+  if (cmd === "/settings" || isBtn(text, "menu_settings")) return settings(c, "open");
+  if (isBtn(text, "menu_today")) return todayCard(c);
+  if (isBtn(text, "menu_deadlines")) return deadlines(c);
   if (cmd === "/test") return preview(c);
   if (cmd === "/today") return todayCard(c);
   if (cmd === "/day") return showDay(c, c.now.iso);
@@ -141,6 +147,7 @@ async function onText(c, text) {
   if (cmd === "/week") return showWeek(c, T.weekStart(c.now.iso));
   if (cmd === "/deadlines") return deadlines(c);
   if (cmd === "/where") return where(c, text.split(/\s+/).slice(1).join(" "));
+  if (cmd === "/menu") return help(c);
   if (cmd === "/id") return send(c.env, c.chatId, `<code>${c.chatId}</code>`);
   if (cmd === "/users" && c.user.status === "admin") return usersList(c);
   if (T.parseRoom(text)) return where(c, text);
@@ -148,13 +155,62 @@ async function onText(c, text) {
 }
 
 const help = c => post(c.env, c.chatId,
-  { text: dict(c.lang).welcome(c.user.lead_min || 20), markup: menuKeyboard(c.env, c.user) });
+  { kind: "menu", text: dict(c.lang).welcome(c.user.lead_min || 20), markup: menuKeyboard(c.env, c.user) });
 
 /* незнакомец без баркода: подсказываем один раз, а спам уводим в тишину */
 async function stranger(c) {
   const { silenced } = await db.guestStrike(c.env, c.chatId);
   if (silenced) return;
   return send(c.env, c.chatId, dict(c.lang).ask_barcode);
+}
+
+/* ---------- геолокация ---------- */
+function locFields(m) {
+  const loc = m.location, at = (m.edit_date || m.date || Math.floor(Date.now() / 1000)) * 1000;
+  const f = { lat: loc.latitude, lon: loc.longitude, loc_at: at };
+  if (loc.live_period && !m.edit_date)
+    f.loc_until = loc.live_period >= 0x7FFFFFFF ? at + 365 * 86400000 : m.date * 1000 + loc.live_period * 1000;
+  return f;
+}
+
+/* разовая точка или начало трансляции: отвечаем, где ты, и возвращаем меню */
+async function onLocation(c, msg) {
+  const L = dict(c.lang);
+  const f = locFields(msg);
+  if (!msg.location.live_period) f.loc_until = null;
+  await db.updateUser(c.env, c.chatId, f);
+  Object.assign(c.user, f);
+  const place = G.placeOf(c.user);
+  const d = G.distance({ lat: f.lat, lon: f.lon }, G.campusOf(c.user));
+  const name = place === "campus" ? L.place_campus : L.place_away;
+  await post(c.env, c.chatId, { kind: "menu", text: L.geo_got(name, d) +
+    (c.user.geo ? "" : `\n\n${L.s_geo}: <b>${L.s_geo_off}</b> — ⚙️`), markup: menuKeyboard(c.env, c.user) });
+  if (place !== "campus" && c.user.campus_lat == null)
+    await post(c.env, c.chatId, { text: L.campus_wrong, markup: { inline_keyboard: [[{ text: L.btn_set_campus, callback_data: "s:camp" }]] } });
+}
+
+/* обновления live-трансляции: молча запоминаем точку, не чаще раза в минуту */
+async function onLiveLocation(e, m) {
+  if (!m.chat || m.chat.type !== "private") return;
+  const user = await db.getUser(e, m.chat.id);
+  if (!user || !["admin", "approved"].includes(user.status)) return;
+  if (!m.location) return db.updateUser(e, m.chat.id, { loc_until: Date.now() });   // трансляцию остановили
+  if (user.loc_at && Date.now() - user.loc_at < 60000) return;
+  return db.updateUser(e, m.chat.id, locFields(m));
+}
+
+async function geoScreen(c, edit) {
+  const L = dict(c.lang), u = c.user;
+  const place = G.placeOf(u);
+  const now = place === "campus" ? L.place_campus : place === "away" ? L.place_away : L.place_unknown;
+  const text = `${L.geo_title}\n\n${L.geo_how}\n\n${L.geo_now(now)}`;
+  const rows = [[{ text: u.geo ? L.btn_geo_off : L.btn_geo_on, callback_data: "s:geoon" }]];
+  if (u.geo) rows.push(
+    [{ text: L.geo_home(u.lead_home || 60), callback_data: "s:lh" }],
+    [{ text: L.geo_campus(u.lead_campus || 5), callback_data: "s:lc" }]);
+  if (u.lat != null) rows.push([{ text: L.btn_set_campus, callback_data: "s:camp" }]);
+  rows.push([{ text: L.btn_back, callback_data: "s:open" }]);
+  return show(c, text, { inline_keyboard: rows }, edit);
 }
 
 /* ---------- регистрация ---------- */
@@ -188,7 +244,7 @@ async function byBarcode(c, code) {
     await db.updateUser(c.env, c.chatId, { person: p.slug });
     c.user.person = p.slug;
     await setMenuButton(c.env, c.chatId, c.user);
-    await post(c.env, c.chatId, { text: L.switched(code), markup: menuKeyboard(c.env, c.user) });
+    await post(c.env, c.chatId, { kind: "menu", text: L.switched(code), markup: menuKeyboard(c.env, c.user) });
     return nextCard(c.env, c.chatId, c.user, c.now);
   }
   if (await db.countUsers(c.env) >= +(c.env.MAX_USERS || 60))
@@ -207,7 +263,7 @@ async function byBarcode(c, code) {
 async function welcome(e, chatId, user, now) {
   const L = dict(langOf(user));
   await setMenuButton(e, chatId, user);
-  await post(e, chatId, { text: L.welcome(user.lead_min || 20), markup: menuKeyboard(e, user) });
+  await post(e, chatId, { kind: "menu", text: L.welcome(user.lead_min || 20), markup: menuKeyboard(e, user) });
   return nextCard(e, chatId, user, now);
 }
 
@@ -370,7 +426,7 @@ async function saveCalendar(c, url) {
 async function deadlines(c, which, edit) {
   const L = dict(c.lang), off = +(c.env.TZ_OFFSET_MIN || 300);
   if (!c.user.cal_url) return show(c, L.cal_how, { inline_keyboard: [[{ text: L.btn_back, callback_data: "s:open" }]] }, edit);
-  const list = await moodle.upcoming(c.env, c.chatId, Date.now(), 8);
+  const list = await moodle.upcoming(c.env, c.chatId, Date.now(), 20);
 
   if (which !== undefined && which !== "" && list[+which]) {   // текст задания под кнопкой
     const d = list[+which];
@@ -380,7 +436,7 @@ async function deadlines(c, which, edit) {
     return show(c, text, { inline_keyboard: [[{ text: L.btn_back, callback_data: "dl" }]] }, edit);
   }
 
-  const rows = list.slice(0, 5).map((d, i) =>
+  const rows = list.slice(0, 8).map((d, i) =>
     [{ text: `📄 ${d.title.replace(/ is due$/i, "")} · ${d.subject || ""}`.slice(0, 60), callback_data: "dl:" + i }]);
   rows.push([{ text: L.btn_back, callback_data: "s:open" }, { text: L.btn_cal_off, callback_data: "s:caloff" }]);
   return show(c, X.deadlinesText(list, Date.now(), c.lang, off), { inline_keyboard: rows }, edit);
@@ -399,6 +455,22 @@ async function settings(c, what, edit) {
     await show(c, L0.cal_off, { inline_keyboard: [[{ text: L0.btn_back, callback_data: "s:open" }]] }, edit);
     return "";
   }
+  if (what === "geo") { await geoScreen(c, edit); return ""; }
+  if (what === "geoon" || what === "lh" || what === "lc") {
+    if (what === "geoon") u.geo = u.geo ? 0 : 1;
+    if (what === "lh") u.lead_home = cycle([60, 90, 120, 45, 30], u.lead_home || 60);
+    if (what === "lc") u.lead_campus = cycle([5, 10, 15, 3], u.lead_campus || 5);
+    await db.updateUser(c.env, c.chatId, { geo: u.geo, lead_home: u.lead_home || 60, lead_campus: u.lead_campus || 5 });
+    await geoScreen(c, edit);
+    return "";
+  }
+  if (what === "camp") {
+    if (u.lat == null) return "📍?";
+    await db.updateUser(c.env, c.chatId, { campus_lat: u.lat, campus_lon: u.lon });
+    u.campus_lat = u.lat; u.campus_lon = u.lon;
+    await show(c, L0.campus_saved, { inline_keyboard: [[{ text: L0.btn_geo, callback_data: "s:geo" }]] }, edit);
+    return "";
+  }
   if (what === "person") {
     await show(c, `🎫 ${L0.ask_barcode}`, { inline_keyboard: [[{ text: L0.btn_back, callback_data: "s:open" }]] }, edit);
     return "";
@@ -414,7 +486,7 @@ async function settings(c, what, edit) {
     c.lang = u.lang = c.lang === "en" ? "ru" : "en";
     await db.updateUser(c.env, c.chatId, { lang: u.lang });
     await setMenuButton(c.env, c.chatId, u);
-    await post(c.env, c.chatId, { text: dict(c.lang).welcome(u.lead_min || 20), markup: menuKeyboard(c.env, u) });
+    await post(c.env, c.chatId, { kind: "menu", text: dict(c.lang).welcome(u.lead_min || 20), markup: menuKeyboard(c.env, u) });
     edit = false;                                   // настройки придут новым сообщением, со свежим меню
   }
 
@@ -424,7 +496,7 @@ async function settings(c, what, edit) {
   await show(c, X.settingsText(u, owner, c.lang), { inline_keyboard: [
     [{ text: "🔔 " + (u.lead_min ? L.s_remind_at(u.lead_min) : L.s_remind_off), callback_data: "s:lead" }],
     [{ text: L.btn_today, callback_data: "s:today" }, { text: L.btn_preview, callback_data: "t" }],
-    [{ text: L.btn_moodle, callback_data: "s:cal" }],
+    [{ text: L.btn_moodle, callback_data: "s:cal" }, { text: L.btn_geo, callback_data: "s:geo" }],
     [{ text: L.btn_lang, callback_data: "s:lang" }, { text: L.btn_barcode, callback_data: "s:person" }],
   ] }, edit);
   return toast;

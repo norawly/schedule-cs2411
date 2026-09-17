@@ -27,13 +27,13 @@ export const PLACE_EN = {
 
 const DICT = {
   ru: {
-    lecture: "лекция", practice: "практика", lab: "лаб. работа", seminar: "семинар",
+    lecture: "лекция", practice: "практика", lab: "лаб. работа", seminar: "семинар", other: "занятие",
     days: ["Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота", "Воскресенье"],
     daysShort: ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"],
     months: ["января", "февраля", "марта", "апреля", "мая", "июня",
              "июля", "августа", "сентября", "октября", "ноября", "декабря"],
     monthsShort: ["янв", "фев", "мар", "апр", "мая", "июн", "июл", "авг", "сен", "окт", "ноя", "дек"],
-    when: ["в понедельник", "во вторник", "в среду", "в четверг", "в пятницу", "в субботу"],
+    when: ["в понедельник", "во вторник", "в среду", "в четверг", "в пятницу", "в субботу", "в воскресенье"],
 
     online: "Онлайн", room: "Кабинет", floorAt: n => `${n} этаж`, blockAt: b => `блок ${b}`,
     today: "сегодня", tomorrow: "завтра", now: "сейчас",
@@ -86,18 +86,36 @@ const DICT = {
     new_deadline: "🆕 <b>Новое задание</b>",
     moved_deadline: "♻️ <b>Дедлайн перенесли</b>",
     due_soon: t => `⏳ <b>Дедлайн через ${t}</b>`,
+    menu_today: "📅 Сегодня", menu_deadlines: "📚 Дедлайны", menu_hint: "Меню внизу 👇",
+    s_geo: "Геолокация", s_geo_on: "включена", s_geo_off: "выключена", btn_geo: "📍 Геолокация",
+    geo_title: "📍 <b>Напоминания по геолокации</b>",
+    geo_how:
+      "Не в университете напомню заранее, в университете — перед самой парой.\n\n" +
+      "Самое удобное — <b>транслировать геопозицию</b>: 📎 → Геопозиция → «Транслировать геопозицию» → «Пока не выключу». " +
+      "Бот видит только последнюю точку и ничего не хранит в истории.\n\n" +
+      "Если трансляции нет, перед первой парой спрошу, где ты.",
+    geo_now: p => `Сейчас: <b>${p}</b>`,
+    place_campus: "в университете", place_away: "не в университете", place_unknown: "неизвестно",
+    btn_geo_on: "✅ Включить", btn_geo_off: "⏸ Выключить",
+    geo_home: n => `🏠 Не в универе: за ${n} мин`, geo_campus: n => `🎓 В универе: за ${n} мин`,
+    btn_send_loc: "📍 Отправить геопозицию",
+    geo_got: (p, d) => `📍 Получил: ты <b>${p}</b>` + (d != null ? ` (${d < 1000 ? d + " м" : (d / 1000).toFixed(1) + " км"} до корпуса)` : ""),
+    btn_set_campus: "🎓 Я в университете — запомнить точку",
+    campus_saved: "✅ Запомнил: это университет.",
+    campus_wrong: "Если ты сейчас в университете, а я ошибся — нажми, и я запомню это место.",
+    geo_ask: "📍 <b>Скоро пары.</b> Ты где? Отправь геопозицию — подстрою, когда напомнить.",
     moodle_diff: "🔍 <b>В Moodle расписание другое</b>",
     moodle_diff_note: "Проверь на сайте университета — возможно, пару перенесли.",
   },
 
   en: {
-    lecture: "lecture", practice: "practice", lab: "lab", seminar: "seminar",
+    lecture: "lecture", practice: "practice", lab: "lab", seminar: "seminar", other: "activity",
     days: ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"],
     daysShort: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
     months: ["January", "February", "March", "April", "May", "June",
              "July", "August", "September", "October", "November", "December"],
     monthsShort: ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"],
-    when: ["on Monday", "on Tuesday", "on Wednesday", "on Thursday", "on Friday", "on Saturday"],
+    when: ["on Monday", "on Tuesday", "on Wednesday", "on Thursday", "on Friday", "on Saturday", "on Sunday"],
 
     online: "Online", room: "Room", floorAt: n => `floor ${n}`, blockAt: b => `block ${b}`,
     today: "today", tomorrow: "tomorrow", now: "now",
@@ -150,6 +168,24 @@ const DICT = {
     new_deadline: "🆕 <b>New assignment</b>",
     moved_deadline: "♻️ <b>Deadline moved</b>",
     due_soon: t => `⏳ <b>Deadline in ${t}</b>`,
+    menu_today: "📅 Today", menu_deadlines: "📚 Deadlines", menu_hint: "Menu is below 👇",
+    s_geo: "Location", s_geo_on: "on", s_geo_off: "off", btn_geo: "📍 Location",
+    geo_title: "📍 <b>Location-based reminders</b>",
+    geo_how:
+      "Away from campus I'll remind you early, on campus — right before class.\n\n" +
+      "Best option: <b>share live location</b>: 📎 → Location → «Share My Live Location» → «Until I turn it off». " +
+      "The bot only sees your latest point and keeps no history.\n\n" +
+      "Without live sharing I'll ask where you are before your first class.",
+    geo_now: p => `Now: <b>${p}</b>`,
+    place_campus: "on campus", place_away: "away from campus", place_unknown: "unknown",
+    btn_geo_on: "✅ Turn on", btn_geo_off: "⏸ Turn off",
+    geo_home: n => `🏠 Away: ${n} min before`, geo_campus: n => `🎓 On campus: ${n} min before`,
+    btn_send_loc: "📍 Send location",
+    geo_got: (p, d) => `📍 Got it: you are <b>${p}</b>` + (d != null ? ` (${d < 1000 ? d + " m" : (d / 1000).toFixed(1) + " km"} to campus)` : ""),
+    btn_set_campus: "🎓 I'm on campus — remember this spot",
+    campus_saved: "✅ Saved: this is campus.",
+    campus_wrong: "If you are on campus right now and I got it wrong, tap to remember this spot.",
+    geo_ask: "📍 <b>Classes soon.</b> Where are you? Send your location and I'll time the reminder.",
     moodle_diff: "🔍 <b>Moodle shows a different timetable</b>",
     moodle_diff_note: "Check the university site — the class may have been moved.",
   },

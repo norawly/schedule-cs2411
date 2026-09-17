@@ -10,7 +10,8 @@ export const createUser = (env, u) =>
   ).bind(u.chat_id, u.name || null, u.username || null, u.person, u.status, Date.now()).run();
 
 const EDITABLE = new Set(["person", "status", "lead_min", "morning", "evening", "notified_at", "name", "username",
-                          "lang", "cal_url", "cal_hash", "cal_checked"]);
+                          "lang", "cal_url", "cal_hash", "cal_checked",
+                          "geo", "lead_home", "lead_campus", "lat", "lon", "loc_at", "loc_until", "campus_lat", "campus_lon"]);
 export async function updateUser(env, id, fields) {
   const keys = Object.keys(fields).filter(k => EDITABLE.has(k));
   if (!keys.length) return;

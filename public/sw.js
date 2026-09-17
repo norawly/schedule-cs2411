@@ -1,5 +1,5 @@
 // Офлайн-кэш общий для всех расписаний. Меняй VERSION, чтобы сбросить кэш у всех.
-const VERSION = 'v9';
+const VERSION = 'v10';
 const CACHE = 'schedule-' + VERSION;
 // Страницы людей (/nurali/, /nurbek/…) кэшируются при первом открытии.
 const ASSETS = ['./', './styles.css', './app.js', './map.js', './map/floors.json',

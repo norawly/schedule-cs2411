@@ -8,18 +8,22 @@ var BASE=(document.currentScript&&document.currentScript.src)
 /* ============ данные ============ */
 var S     = window.SCHEDULE || {days:{}, subjects:{}};
 var T     = S.term || {};
-var KEYS  = ["mon","tue","wed","thu","fri","sat"];
-var SHORT = {mon:"Пн",tue:"Вт",wed:"Ср",thu:"Чт",fri:"Пт",sat:"Сб"};
-var FULL  = {mon:"Понедельник",tue:"Вторник",wed:"Среда",thu:"Четверг",fri:"Пятница",sat:"Суббота"};
-var TYPE  = {lecture:"Лекция",practice:"Практика",lab:"Лаб. работа",seminar:"Семинар"};
+/* воскресенье показываем, только если в этот день что-то есть */
+var ND    = (S.days&&S.days.sun&&S.days.sun.length)?7:6;
+var KEYS  = ["mon","tue","wed","thu","fri","sat","sun"].slice(0,ND);
+var SHORT = {mon:"Пн",tue:"Вт",wed:"Ср",thu:"Чт",fri:"Пт",sat:"Сб",sun:"Вс"};
+var FULL  = {mon:"Понедельник",tue:"Вторник",wed:"Среда",thu:"Четверг",fri:"Пятница",sat:"Суббота",sun:"Воскресенье"};
+var TYPE  = {lecture:"Лекция",practice:"Практика",lab:"Лаб. работа",seminar:"Семинар",other:"Занятие"};
 var MON   = ["янв","фев","мар","апр","мая","июн","июл","авг","сен","окт","ноя","дек"];
 var MONF  = ["января","февраля","марта","апреля","мая","июня","июля","августа","сентября","октября","ноября","декабря"];
 var KIND  = {
   "lecture":         {c:"#3b68e0", label:"Лекция"},
   "practice":        {c:"#1a9e5f", label:"Практика"},
   "lecture-online":  {c:"#7c5cf0", label:"Лекция онлайн"},
-  "practice-online": {c:"#c97a10", label:"Практика онлайн"}
+  "practice-online": {c:"#c97a10", label:"Практика онлайн"},
+  "other":           {c:"#6b7280", label:"Другое"}
 };
+document.documentElement.style.setProperty("--nd",ND);
 
 /* ============ мелочи ============ */
 function $(id){ return document.getElementById(id); }
@@ -40,7 +44,7 @@ function startOfWeek(d){ var x=new Date(d); x.setHours(0,0,0,0); return addDays(
 function sameDate(a,b){ return a.getFullYear()===b.getFullYear()&&a.getMonth()===b.getMonth()&&a.getDate()===b.getDate(); }
 function fmtShort(d){ return d.getDate()+" "+MON[d.getMonth()]; }
 function fmtLong(d){ return d.getDate()+" "+MONF[d.getMonth()]; }
-function kindKey(it){ return (it.type==="lecture"?"lecture":"practice")+(it.online?"-online":""); }
+function kindKey(it){ if(it.type==="other") return "other"; return (it.type==="lecture"?"lecture":"practice")+(it.online?"-online":""); }
 function kindOf(it){ return KIND[kindKey(it)]||KIND.practice; }
 function subjShort(n){ return (S.subjects&&S.subjects[n])||""; }
 
@@ -105,14 +109,14 @@ var DAYS=[], TODAY=-1;
   var d=new Date(first), last=addDays(startOfWeek(TERM_B),6);
   if(startOfWeek(today)>startOfWeek(TERM_B)) last=addDays(startOfWeek(today),6);
   while(d<=last){
-    if(d.getDay()!==0){
+    if(d.getDay()!==0||ND===7){
       if(sameDate(d,today)) TODAY=DAYS.length;
-      DAYS.push({key:KEYS[(d.getDay()+6)%7], date:new Date(d)});
+      DAYS.push({key:["mon","tue","wed","thu","fri","sat","sun"][(d.getDay()+6)%7], date:new Date(d)});
     }
     d=addDays(d,1);
   }
 })();
-var WEEKS=Math.ceil(DAYS.length/6);
+var WEEKS=Math.ceil(DAYS.length/ND);
 var CUR = TODAY>=0 ? TODAY : (function(){
   var t=new Date(); t.setHours(0,0,0,0);
   for(var i=0;i<DAYS.length;i++) if(DAYS[i].date>=t) return i;
@@ -120,10 +124,10 @@ var CUR = TODAY>=0 ? TODAY : (function(){
 })();
 /* открываем ближайшую неделю, в которой реально идут занятия */
 var week = (function(){
-  var w=Math.floor(CUR/6);
-  for(var x=w; x<Math.ceil(DAYS.length/6); x++)
-    for(var c=0;c<6;c++){
-      var d=DAYS[x*6+c];
+  var w=Math.floor(CUR/ND);
+  for(var x=w; x<Math.ceil(DAYS.length/ND); x++)
+    for(var c=0;c<ND;c++){
+      var d=DAYS[x*ND+c];
       if(d && dayState(d.date).kind==="study" && blocks(d.key).length) return x;
     }
   return w;
@@ -140,7 +144,7 @@ $("gmeta").textContent=[S.group,T.name||S.period,S.year].filter(Boolean).join(" 
 var body=$("weekBody");
 
 function renderWeek(dir){
-  var i0=week*6;
+  var i0=week*ND;
   body.innerHTML="";
   body.style.setProperty("--hours",HOURS);
 
@@ -152,7 +156,7 @@ function renderWeek(dir){
   }
   gut.appendChild(gb); body.appendChild(gut);
 
-  for(var c=0;c<6;c++){
+  for(var c=0;c<ND;c++){
     var day=DAYS[i0+c];
     var col=el("div","col");
     if(!day){ col.classList.add("empty"); body.appendChild(col); continue; }
@@ -190,7 +194,7 @@ function renderWeek(dir){
             '<span class="ev-time">'+hhmm(gr.s)+"–"+hhmm(gr.e)+"</span>"+
             '<span class="ev-room'+(it.online?" on":"")+
               (!it.online&&roomShort(it.room).length>7?" long":"")+'">'+
-              (it.online?"Онлайн":esc(roomShort(it.room)||"—"))+"</span>"+
+              (it.online?"Онлайн":esc(roomShort(it.room)||(it.type==="other"?it.subject:"—")))+"</span>"+
           "</span>"+
           '<span class="ev-sub">'+esc(it.subject)+"</span>";
         b.onclick=(function(g,d){ return function(){ openCard(g,d); }; })(gr,day);
@@ -218,11 +222,11 @@ function fitEvents(){
   }
 }
 function weekLabel(){
-  var a=DAYS[week*6], b=DAYS[Math.min(DAYS.length-1,week*6+5)];
+  var a=DAYS[week*ND], b=DAYS[Math.min(DAYS.length-1,week*ND+ND-1)];
   if(!a){ return; }
   var one=a.date.getMonth()===b.date.getMonth();
   $("weekLabel").textContent=a.date.getDate()+(one?"":" "+MON[a.date.getMonth()])+" – "+fmtShort(b.date);
-  var tw=TODAY>=0?Math.floor(TODAY/6):-1;
+  var tw=TODAY>=0?Math.floor(TODAY/ND):-1;
   var st=dayState(a.date), stEnd=dayState(b.date);
   /* без «эта неделя» — пишем только то, что не видно по датам */
   var hint = st.kind==="exams"||stEnd.kind==="exams" ? "сессия"
@@ -296,7 +300,7 @@ function buildMobile(){
             '<span class="r-meta">'+esc([bldg(it)?bldgShort(it):"",it.teacher||""].filter(Boolean).join(" · "))+"</span></span>"+
           '<span class="r-room'+(it.online?" on":"")+
             (!it.online&&roomShort(it.room).length>7?" long":"")+'"><b>'+
-            (it.online?"Онлайн":esc(roomShort(it.room)||"—"))+"</b>"+
+            (it.online?"Онлайн":esc(roomShort(it.room)||(it.type==="other"?it.subject:"—")))+"</b>"+
             '<i>'+esc((TYPE[it.type]||"Занятие").toLowerCase())+"</i>"+
           "</span>";
         r.onclick=function(){ openCard(gr,day); };
@@ -319,24 +323,24 @@ function buildMobile(){
 }
 function buildTabs(){
   var host=$("dayTabs"); host.innerHTML="";
-  for(var i=0;i<6;i++){
+  for(var i=0;i<ND;i++){
     var b=el("button",null,'<span class="d"></span><span class="n"></span>');
     b.type="button";
-    b.onclick=(function(slot){ return function(){ goPage(Math.floor(curPage()/6)*6+slot,true); }; })(i);
+    b.onclick=(function(slot){ return function(){ goPage(Math.floor(curPage()/ND)*ND+slot,true); }; })(i);
     host.appendChild(b);
   }
 }
 function curPage(){ return Math.round(pager.scrollLeft/Math.max(1,pager.clientWidth)); }
 function syncTabs(){
-  var i=Math.max(0,Math.min(DAYS.length,curPage())), w=Math.min(WEEKS-1,Math.floor(i/6)), tabs=$("dayTabs").children;
-  for(var s=0;s<6;s++){
-    var day=DAYS[w*6+s], t=tabs[s];
+  var i=Math.max(0,Math.min(DAYS.length,curPage())), w=Math.min(WEEKS-1,Math.floor(i/ND)), tabs=$("dayTabs").children;
+  for(var s=0;s<ND;s++){
+    var day=DAYS[w*ND+s], t=tabs[s];
     if(!day){ t.style.visibility="hidden"; continue; }
     t.style.visibility="";
     t.querySelector(".d").textContent=SHORT[day.key];
     t.querySelector(".n").textContent=day.date.getDate();
-    t.setAttribute("aria-selected",(w*6+s)===i?"true":"false");
-    t.classList.toggle("today",(w*6+s)===TODAY);
+    t.setAttribute("aria-selected",(w*ND+s)===i?"true":"false");
+    t.classList.toggle("today",(w*ND+s)===TODAY);
     t.classList.toggle("off",dayState(day.date).kind!=="study");
   }
 }
@@ -387,7 +391,7 @@ function renderStatus(){
         (it.teacher?" · "+esc(it.teacher):"")+"</div>"+
     "</div>"+
     '<div class="st-side">'+
-      '<div class="st-room'+(it.online?" on":"")+'">'+(it.online?"Онлайн":esc(roomShort(it.room)||"—"))+"</div>"+
+      '<div class="st-room'+(it.online?" on":"")+'">'+(it.online?"Онлайн":esc(roomShort(it.room)||(it.type==="other"?it.subject:"—")))+"</div>"+
       '<div class="st-timer"><span id="tick">--:--</span><small>'+(r.live?"до конца":"до начала")+"</small></div>"+
     "</div>";
   host.onclick=function(){ openCard(r.gr,r.day); };
@@ -443,7 +447,7 @@ function renderNext(){
   var when=off===0?"":(off===1?"завтра":SHORT[pick.day.key].toLowerCase()+" "+pick.day.date.getDate());
   var html='<span class="nu-l">'+((r&&r.live)?"Следующая":"Потом")+(when?" · "+esc(when):"")+"</span>"+
     '<span class="nu-s">'+esc(it.subject)+"</span>"+
-    '<span class="nu-r'+(it.online?" on":"")+'">'+(it.online?"Онлайн":esc(roomShort(it.room)||"—"))+"</span>"+
+    '<span class="nu-r'+(it.online?" on":"")+'">'+(it.online?"Онлайн":esc(roomShort(it.room)||(it.type==="other"?it.subject:"—")))+"</span>"+
     '<span class="nu-t">--:--</span>';
   hosts.forEach(function(h){
     if(!h) return;
@@ -509,7 +513,7 @@ function openCard(gr,day){
         '<span class="tag muted">'+esc(FULL[day.key]+", "+fmtShort(day.date))+"</span></div>"+
       "<h3>"+esc(it.subject)+"</h3>"+
       '<div class="c-room'+(it.online?" on":"")+'">'+
-        (it.online?"Онлайн":esc(roomShort(it.room)||"—"))+
+        (it.online?"Онлайн":esc(roomShort(it.room)||(it.type==="other"?it.subject:"—")))+
         (it.online?"<small>ссылка в LMS</small>"
                  :(bldg(it)?"<small>"+esc(bldg(it))+"</small>":""))+
       "</div>"+
@@ -580,10 +584,10 @@ document.addEventListener("keydown",function(e){ if(e.key==="Escape") closeCard(
 function markPast(){
   if(TODAY<0||dayState(DAYS[TODAY].date).kind!=="study") return;
   var n=nowMin(), list=blocks(DAYS[TODAY].key);
-  var col=body.querySelectorAll(".col")[TODAY-week*6];
+  var col=body.querySelectorAll(".col")[TODAY-week*ND];
   var page=pager.children[TODAY];
   var sets=[];
-  if(col&&Math.floor(TODAY/6)===week) sets.push(col.querySelectorAll(".ev"));
+  if(col&&Math.floor(TODAY/ND)===week) sets.push(col.querySelectorAll(".ev"));
   if(page) sets.push(page.querySelectorAll(".row"));
   sets.forEach(function(nodes){
     for(var i=0;i<nodes.length;i++){
@@ -611,7 +615,7 @@ function markPast(){
 buildMobile(); buildTabs(); renderWeek(0); renderStatus(); renderNext();
 var START=(function(){
   if(TODAY>=0 && dayState(DAYS[TODAY].date).kind==="study" && blocks(DAYS[TODAY].key).length) return TODAY;
-  for(var i=week*6;i<DAYS.length;i++)
+  for(var i=week*ND;i<DAYS.length;i++)
     if(dayState(DAYS[i].date).kind==="study" && blocks(DAYS[i].key).length) return i;
   return CUR;
 })();
@@ -619,14 +623,14 @@ goPage(START,false);
 $("mapBtn").onclick=function(){ if(window.CampusMap) CampusMap.open(null); };
 $("todayBtn").onclick=function(){
   var t = TODAY>=0 ? TODAY : START;
-  goWeek(Math.floor(t/6)); goPage(t,true);
+  goWeek(Math.floor(t/ND)); goPage(t,true);
 };
 $("todayBtn").querySelector(".tt").textContent=fmtShort(new Date());
 
 /* ссылки из телеграм-бота: ?day=2026-09-15 открывает день, ?room=2.232P — карту */
 (function(){
   var q=new URLSearchParams(location.search), day=q.get("day"), room=q.get("room");
-  if(day) for(var i=0;i<DAYS.length;i++) if(iso(DAYS[i].date)===day){ goWeek(Math.floor(i/6)); goPage(i,false); break; }
+  if(day) for(var i=0;i<DAYS.length;i++) if(iso(DAYS[i].date)===day){ goWeek(Math.floor(i/ND)); goPage(i,false); break; }
   if(room && window.CampusMap) setTimeout(function(){ CampusMap.open(room); },200);
   /* открыт внутри Telegram как мини-приложение — растягиваем на весь экран */
   if(/tgWebApp/.test(location.hash+location.search)){

@@ -28,6 +28,7 @@ function whenLabel(iso, now, L) {
 export function roomLine(it, info, lang) {
   const L = dict(lang);
   if (it.online) return `💻 ${L.online}`;
+  if (!it.room) return "";
   const room = `<b>${esc(placeName(T.roomShort(it.room), lang) || "—")}</b>`;
   const b = T.bldg(it);
   if (b) return `🚪 ${room} — ${esc(placeName(b, lang))}`;
@@ -50,14 +51,15 @@ export function classCard(g, info, state, lang) {
 
   return `${head}\n\n` +
     `🕐 <b>${T.hhmm(g.rs)} – ${T.hhmm(g.re)}</b>\n` +
-    `📘 <b>${esc(subjectName(it.subject, lang))}</b> · ${L[it.type] || L.practice}\n` +
-    roomLine(it, info, lang);
+    `📘 <b>${esc(subjectName(it.subject, lang))}</b> · ${L[it.type] || L.practice}` +
+    (roomLine(it, info, lang) ? "\n" + roomLine(it, info, lang) : "");
 }
 
 /* строка «где» в списках */
 function place(it, lang) {
   const L = dict(lang);
   if (it.online) return `💻 ${L.online.toLowerCase()}`;
+  if (!it.room) return "";
   const room = `<code>${esc(placeName(T.roomShort(it.room), lang) || "—")}</code>`;
   const b = T.bldg(it);
   if (b) return `📍 ${room} · ${esc(placeName(b, lang))}`;
@@ -90,8 +92,9 @@ export function dayText(S, iso, now, lang) {
 export function weekText(S, ws, now, lang) {
   const L = dict(lang);
   const lines = [`🗓 <b>${fmtShort(ws, lang)} – ${fmtShort(T.isoAdd(ws, 5), lang)}</b>`];
-  for (let i = 0; i < 6; i++) {
+  for (let i = 0; i < 7; i++) {
     const iso = T.isoAdd(ws, i), k = T.KEYS[i], st = T.dayState(S, iso);
+    if (k === "sun" && !T.blocks(S, k).length) continue;
     lines.push("", `<b>${L.daysShort[i]}, ${fmtShort(iso, lang)}</b>${iso === now.iso ? ` · ${L.today}` : ""}`);
     if (st.kind !== "study") { lines.push(`   ${esc(st.label || "")}`); continue; }
     const list = T.blocks(S, k);
@@ -126,13 +129,23 @@ export function dueIn(due, now, lang) {
 export function deadlinesText(list, now, lang, off = 300) {
   const L = dict(lang);
   if (!list.length) return `${L.deadlines}\n\n${L.no_deadlines}`;
-  const body = list.map(d => {
+  const when = d => {
     const at = new Date(d.due + off * 60000);          // Moodle отдаёт UTC, показываем по Астане
-    const date = `${at.getUTCDate()} ${L.monthsShort[at.getUTCMonth()]}`;
-    const hhmm = `${String(at.getUTCHours()).padStart(2, "0")}:${String(at.getUTCMinutes()).padStart(2, "0")}`;
-    return `📌 <b>${esc(d.title)}</b>\n<i>${esc(d.subject || "")}</i>\n🕐 ${date}, ${hhmm} · ${dueIn(d.due, now, lang)}`;
-  }).join("\n\n");
-  return `${L.deadlines}\n\n${body}`;
+    return `${at.getUTCDate()} ${L.monthsShort[at.getUTCMonth()]}, ` +
+      `${String(at.getUTCHours()).padStart(2, "0")}:${String(at.getUTCMinutes()).padStart(2, "0")}`;
+  };
+  /* по предметам: сначала тот, где сдавать раньше всего */
+  const groups = new Map();
+  for (const d of list) {
+    const key = d.subject || "—";
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(d);
+  }
+  const body = [...groups].map(([subj, items]) =>
+    `📘 <b>${esc(subj)}</b>\n` + items.map(d =>
+      `   • ${esc(String(d.title).replace(/ is due$/i, ""))} — ${when(d)} · <i>${dueIn(d.due, now, lang)}</i>`).join("\n")
+  ).join("\n\n");
+  return `${L.deadlines} · ${list.length}\n\n${body}`;
 }
 
 export const who = u => esc([u.name, u.username ? "@" + u.username : ""].filter(Boolean).join(" ")) || String(u.chat_id);
