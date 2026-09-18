@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="robots" content="noindex, nofollow">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Schedule · 676767</title>
+<meta name="description" content="Schedule · 676767: пары, кабинеты, преподаватели, карта корпуса.">
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#f6f6f7">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Schedule">
+<link rel="apple-touch-icon" href="../icons/icon-180.png">
+<link rel="icon" href="../icons/icon-192.png">
+<link rel="stylesheet" href="../styles.css">
+</head>
+<body>
+<!-- Сгенерировано tools/build-pages.py из tools/page.html — правь шаблон, а не этот файл. -->
+
+<div class="boot" id="boot"><div class="boot-in"><span class="boot-dot"></span>
+  <b>676767</b><i>загружаю расписание…</i></div></div>
+
+<div class="app">
+  <header class="top">
+    <div class="ttl">
+      <h1 id="gname">676767</h1>
+      <p id="gmeta"></p>
+    </div>
+
+    <nav class="links" aria-label="Сервисы университета">
+      <a class="lnk lms"   href="https://lms.astanait.edu.kz"        target="_blank" rel="noopener">
+        <span class="lk-n">LMS</span><span class="lk-d">задания, материалы</span></a>
+      <a class="lnk du"    href="https://du.astanait.edu.kz/login"   target="_blank" rel="noopener">
+        <span class="lk-n">DU</span><span class="lk-d">транскрипт, справки</span></a>
+      <a class="lnk learn" href="https://learn.astanait.edu.kz/dashboard" target="_blank" rel="noopener">
+        <span class="lk-n">Learn</span><span class="lk-d">онлайн-курсы</span></a>
+    </nav>
+
+    <div class="acts">
+      <button class="btn" id="mapBtn" title="Карта корпуса">
+        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor"
+             stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M9 4 3 6.5v13L9 17l6 3 6-2.5v-13L15 7 9 4z"/><path d="M9 4v13M15 7v13"/>
+        </svg>
+        <span class="mt">Карта</span></button>
+      <button class="btn" id="todayBtn" title="К сегодняшнему дню"><span class="tt">Сегодня</span></button>
+      <button class="btn ico" id="themeBtn" aria-label="Сменить тему"></button>
+    </div>
+  </header>
+
+  <div class="status" id="status" hidden></div>
+
+  <!-- ===== компьютер: неделя целиком, без прокрутки ===== -->
+  <section class="week" aria-label="Календарь недели">
+    <div class="week-bar">
+      <div class="wb-nav">
+        <button class="btn ico sm" id="prevWeek" aria-label="Предыдущая неделя">
+          <svg viewBox="0 0 24 24"><path d="M14.5 5.5 8 12l6.5 6.5"/></svg></button>
+        <button class="btn ico sm" id="nextWeek" aria-label="Следующая неделя">
+          <svg viewBox="0 0 24 24"><path d="M9.5 5.5 16 12l-6.5 6.5"/></svg></button>
+      </div>
+      <div class="wb-left">
+        <span class="wb-range" id="weekLabel"></span>
+        <span class="wb-hint" id="weekHint"></span>
+      </div>
+      <div class="nextup" id="nextUp"></div>
+    </div>
+    <div class="week-body" id="weekBody"></div>
+  </section>
+
+  <!-- ===== телефон: дни листаются вбок ===== -->
+  <section class="mob">
+    <div class="mob-bar"><div class="nextup" id="nextUpM"></div></div>
+    <nav class="tabs" id="dayTabs" role="tablist" aria-label="Дни недели"></nav>
+    <div class="pager" id="pager"></div>
+  </section>
+</div>
+
+<div class="veil" id="veil"></div>
+<div class="card" id="card" role="dialog" aria-modal="true"></div>
+
+<script src="schedule.js"></script>
+<script src="../map.js"></script>
+<script src="../app.js"></script>
+</body>
+</html>

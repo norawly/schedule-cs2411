@@ -7,6 +7,7 @@ export const SUBJECT_EN = {
   "Веб-безопасность": "Web Security",
   "Методы и инструменты исследования": "Research Methods and Tools",
   "Введение в анализ компьютерных вредоносных программ": "Introduction to Computer Malware Analysis",
+  "Введение в анализ вредоносных программ": "Introduction to Computer Malware Analysis",
   "Технологическое предпринимательство": "Technological Entrepreneurship",
   "Предпринимательство": "Entrepreneurship",
   "Введение в поиск угроз": "Introduction to Threat Hunting",
