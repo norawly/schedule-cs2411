@@ -59,7 +59,7 @@ def chooser(people, prefix, heading, note):
 <html lang="ru">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1">\n<meta name="robots" content="noindex, nofollow">
 <title>Schedule</title>
 <link rel="icon" href="{prefix}icons/icon-192.png">
 <!-- Сгенерировано tools/build-pages.py -->
@@ -102,7 +102,7 @@ for slug in os.listdir(PUB):
         continue
     src = open(src_path, encoding="utf-8").read()
     owner = field(src, "owner") or slug.capitalize()
-    hidden = bool(re.search(r"hidden\s*:\s*true", src))
+    hidden = bool(re.search(r"(?:hidden|private)\s*:\s*true", src))   # личные — не в списке на главной
     people.append((slug, owner, field(src, "group"), hidden))
 
 people.sort(key=lambda p: (p[0] != FIRST, p[0]))
@@ -114,7 +114,10 @@ for slug, owner, _, _hidden in people:
     write(os.path.join(PUB, slug, "index.html"), page)
     write(os.path.join(PUB, slug, "manifest.webmanifest"), manifest(owner))
 
-write(os.path.join(PUB, "index.html"), chooser(shown, "", "Schedule", "Чьё расписание открыть?"))
-write(os.path.join(PUB, "404.html"), chooser(shown, "/", "Такого расписания нет", "Есть такие:"))
+write(os.path.join(PUB, "robots.txt"), "User-agent: *\nDisallow: /\n")      # сайт личный, поисковикам тут нечего делать
+note = "Чьё расписание открыть?" if shown else "Расписание открывается по прямой ссылке — её выдаёт бот @nxxschedule_bot"
+write(os.path.join(PUB, "index.html"), chooser(shown, "", "Schedule", note))
+write(os.path.join(PUB, "404.html"), chooser(shown, "/", "Такого расписания нет",
+                                             note if shown else "Проверь ссылку из бота"))
 
 print("расписания:", ", ".join(f"/{s}/" + (" (скрыто)" if h else "") for s, _, _, h in people))

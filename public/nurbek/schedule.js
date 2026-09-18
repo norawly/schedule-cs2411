@@ -3,6 +3,7 @@
    Формат полей — как в public/nurali/schedule.js.
    ============================================================ */
 window.SCHEDULE = {
+  private: true,          // закрыто: только свой аккаунт в Telegram
   owner: "Нурбек",
   group: "",
   year: "2026–2027",

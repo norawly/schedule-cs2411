@@ -92,6 +92,16 @@ export async function sendClassCard(e, chatId, user, g, iso, state, extraRows = 
   return post(e, chatId, { kind: "class", text, markup, ref });
 }
 
+/* Личное расписание открывается только со своего аккаунта.
+   Кто привязался первым (а это уже сделано), тот и владелец — остальным отказ. */
+export async function allowed(e, slug, chatId) {
+  const p = (await loadPeople(e)).find(x => x.slug === slug);
+  if (!p || !p.private) return true;
+  const row = await db.ownerOf(e, slug);
+  if (!row) { await db.claimOwner(e, slug, chatId); return true; }
+  return row.chat_id === chatId;
+}
+
 /* ---------- вход ---------- */
 export async function handleUpdate(e, update) {
   const msg = update.message, cb = update.callback_query;
@@ -116,6 +126,15 @@ export async function handleUpdate(e, update) {
   if (user && user.status === "banned") return;
   /* незнакомец, перебиравший баркоды, сидит в тишине — ни одной функции бота */
   if (!user && await db.guestQuiet(e, chat.id)) return;
+
+  /* привязан к чужому личному расписанию — отвязываем и просим свой баркод */
+  if (user && user.person && !(await allowed(e, user.person, chat.id))) {
+    await db.updateUser(e, chat.id, { person: null });
+    user.person = null;
+    const L = dict(langOf(user));
+    await post(e, chat.id, { text: `${L.locked}\n\n${L.ask_barcode}` });
+    return;
+  }
 
   const c = { env: e, chatId: chat.id, from, user, now: T.localNow(e), lang: langOf(user) };
   if (cb) return onCallback(c, cb);
@@ -193,6 +212,9 @@ async function byBarcode(c, code) {
       `🤔 Баркода <b>${X.esc(code)}</b> у меня нет.\n\n` +
       `Напиши ${X.esc(c.env.ADMIN_CONTACT || "админу")} — он добавит твоё расписание, и всё заработает.`);
   }
+
+  if (!(await allowed(c.env, p.slug, c.chatId)))   // чужое личное расписание
+    return send(c.env, c.chatId, L.locked);
 
   if (c.user) {                                   // смена расписания у своих
     await db.updateUser(c.env, c.chatId, { person: p.slug });

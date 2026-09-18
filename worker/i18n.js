@@ -46,6 +46,7 @@ const DICT = {
     found: code => `✅ Нашёл расписание по баркоду <b>${code}</b>.`,
     switched: code => `✅ Переключил на баркод <b>${code}</b>.`,
     no_places: "😔 Мест больше нет — бот только для своих.",
+    locked: "🔒 <b>Это расписание закрыто.</b>\n\nОно личное и привязано к другому аккаунту.",
     welcome: lead =>
       `🔔 Буду напоминать о каждой паре <b>за ${lead} мин</b>: предмет, время и кабинет на карте.\n\n` +
       "🌐 Расписание целиком — кнопка «Расписание». Остальное — в ⚙️ Настройках.\n" +
@@ -136,6 +137,7 @@ const DICT = {
     found: code => `✅ Found the timetable for barcode <b>${code}</b>.`,
     switched: code => `✅ Switched to barcode <b>${code}</b>.`,
     no_places: "😔 No seats left — this bot is for friends only.",
+    locked: "🔒 <b>This timetable is private.</b>\n\nIt is locked to its owner's Telegram account.",
     welcome: lead =>
       `🔔 I'll remind you <b>${lead} min</b> before every class: subject, time and the room on the map.\n\n` +
       "🌐 Full timetable — the «Timetable» button. Everything else is in ⚙️ Settings.\n" +

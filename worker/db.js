@@ -74,3 +74,10 @@ export const calendarUsers = (env, before) =>
   env.DB.prepare("SELECT * FROM users WHERE cal_url IS NOT NULL AND status IN ('admin','approved') " +
                  "AND (cal_checked IS NULL OR cal_checked < ?) ORDER BY cal_checked LIMIT 10")
     .bind(before).all().then(r => r.results);
+
+/* личные расписания: первый привязавшийся становится владельцем, остальным вход закрыт */
+export const ownerOf = (env, person) =>
+  env.DB.prepare("SELECT chat_id FROM owners WHERE person = ?").bind(person).first();
+export const claimOwner = (env, person, chatId) =>
+  env.DB.prepare("INSERT OR IGNORE INTO owners (person, chat_id, since) VALUES (?, ?, ?)")
+    .bind(person, chatId, Date.now()).run();
