@@ -117,3 +117,13 @@ export function mapKey(room) {
 }
 /* номер без буквы на конце: C1.2.221K и C1.2.221P — один кабинет */
 export const roomKey = r => String(r || "").toUpperCase().replace(/^C1\./, "").replace(/[A-ZА-Я]$/, "");
+
+/* За сколько минут напоминать про пару из списка дня.
+   Первая пара дня — за 40 минут (надо собраться и доехать), дальше — по окну перед ней:
+   пары подряд — за 5 минут, окно час — за 10, два часа — за 20, три — за 30, больше — за 40. */
+export function leadOf(list, i) {
+  if (i === 0) return 40;
+  const gap = list[i].rs - list[i - 1].re;
+  if (gap <= 30) return 5;
+  return Math.min(40, Math.max(10, Math.round(gap / 30) * 5));
+}

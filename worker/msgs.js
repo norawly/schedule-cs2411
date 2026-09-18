@@ -6,7 +6,7 @@ import * as T from "./sched.js";
 import * as X from "./text.js";
 import { tg } from "./tg.js";
 
-const LIMIT = { class: 2, deadline: 2, info: 1, menu: 1 };
+const LIMIT = { class: 2, deadline: 2, day: 1, due: 1, info: 1, menu: 1 };
 const OPTS = { parse_mode: "HTML", link_preview_options: { is_disabled: true } };
 
 const rows = (e, chatId, kind) =>
@@ -23,6 +23,19 @@ export async function newest(e, chatId, kind = "class") {
   if (!r) return null;
   try { r.data = JSON.parse(r.ref || "null"); } catch { r.data = null; }
   return r;
+}
+
+/* убрать все сообщения одного вида (например, расписание дня перед первой парой) */
+export async function dropKind(e, chatId, kind) {
+  for (const row of await rows(e, chatId, kind)) await drop(e, chatId, row.message_id).catch(() => {});
+}
+
+/* ночная уборка: в чате не остаётся ничего */
+export async function wipe(e, chatId) {
+  const list = (await e.DB.prepare("SELECT message_id FROM msgs WHERE chat_id = ?").bind(chatId).all()).results;
+  for (const row of list) await tg(e, "deleteMessage", { chat_id: chatId, message_id: row.message_id }).catch(() => {});
+  await e.DB.prepare("DELETE FROM msgs WHERE chat_id = ?").bind(chatId).run();
+  return list.length;
 }
 
 export async function drop(e, chatId, id) {

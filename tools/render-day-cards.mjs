@@ -53,17 +53,34 @@ function card(S, key, lang) {
   const day = L.days[KEYS.indexOf(key)];
   const span = `${hhmm(gs[0].rs)} – ${hhmm(gs[gs.length - 1].re)}`;
 
-  const area = [214, H - 74], gap = 16;
-  const h = Math.min(176, (area[1] - area[0] - gap * (gs.length - 1)) / gs.length);
-  const top = area[0] + (area[1] - area[0] - (h * gs.length + gap * (gs.length - 1))) / 2;
-  const rows = gs.map((g, i) => {
-    const it = g.it, y = top + i * (h + gap);
+  const area = [214, H - 74], gap = 16, GAPH = 56;
+  /* между парами показываем окна — их видно сразу */
+  const items = [];
+  gs.forEach((g, i) => {
+    if (i) { const free = g.rs - gs[i - 1].re; if (free >= 45) items.push({ free }); }
+    items.push({ g });
+  });
+  const nCls = gs.length, nGap = items.length - nCls;
+  const h = Math.min(176, (area[1] - area[0] - gap * (items.length - 1) - GAPH * nGap) / nCls);
+  const total = h * nCls + GAPH * nGap + gap * (items.length - 1);
+  let y = area[0] + (area[1] - area[0] - total) / 2;
+
+  const rows = items.map(item => {
+    if (item.free) {
+      const mins = item.free, txt = (mins >= 60 ? `${Math.floor(mins / 60)} ${L.h}` : "") + (mins % 60 ? ` ${mins % 60} ${L.min}` : "");
+      const box = `<g>
+        <rect x="40" y="${y}" width="${W - 80}" height="${GAPH}" rx="16" fill="#101318" stroke="#20242b" stroke-width="1.5" stroke-dasharray="10 8"/>
+        <text x="${W / 2}" y="${y + GAPH / 2 + 10}" font-size="27" font-weight="600" fill="#6b7384" text-anchor="middle">${esc(L.window)} ${esc(txt.trim())}</text>
+      </g>`;
+      y += GAPH + gap;
+      return box;
+    }
+    const g = item.g, it = g.it;
     const color = it.type === "other" ? KIND.other : KIND[(it.type === "lecture" ? "lecture" : "practice") + (it.online ? "-online" : "")] || KIND.practice;
     const title = fit(subjectName(it.subject, lang), 38, 700);
     const type = L[it.type] || L.practice;
-    const shift = h > 150 ? 0 : (150 - h) / 2;      // при плотном дне сдвигаем строки ближе
-
-    return `<g>
+    const shift = h > 150 ? 0 : (150 - h) / 2;
+    const box = `<g>
       <rect x="40" y="${y}" width="${W - 80}" height="${h}" rx="22" fill="#171a20" stroke="#262a31" stroke-width="1.5"/>
       <rect x="40" y="${y}" width="7" height="${h}" rx="3.5" fill="${color}"/>
       <text x="76" y="${y + 52 - shift * .4}" font-size="34" font-weight="700" fill="#e7e9ec">${esc(hhmm(g.rs))}</text>
@@ -74,6 +91,8 @@ function card(S, key, lang) {
       <text x="${W - 76}" y="${y + 100 - shift * .5}" font-size="27" font-weight="500" fill="#949aa4" text-anchor="end">${esc(type)}</text>
       ${it.code ? `<text x="${W - 76}" y="${y + 56 - shift * .4}" font-size="24" font-weight="500" fill="#6b7384" text-anchor="end">${esc(it.code)}</text>` : ""}
     </g>`;
+    y += h + gap;
+    return box;
   }).join("");
 
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" font-family="${FONT}">

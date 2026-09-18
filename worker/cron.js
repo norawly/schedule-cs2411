@@ -5,8 +5,7 @@ import * as db from "./db.js";
 import * as M from "./msgs.js";
 import * as moodle from "./moodle.js";
 import { tg, webhookSecret } from "./tg.js";
-import * as G from "./geo.js";
-import { loadSchedule, loader, sendClassCard, post } from "./bot.js";
+import { loadSchedule, loader, sendClassCard, post, dayPhoto, menuKeyboard } from "./bot.js";
 import { t as dict, durIn, SUBJECT_EN } from "./i18n.js";
 
 const BUDGET = 40;            // бесплатный план — до 50 запросов наружу за запуск
@@ -25,34 +24,42 @@ export async function runCron(env, source = "cron") {
   for (const u of await db.activeUsers(env)) {
     if (budget <= 0) break;
     const S = await loadSchedule(env, u.person);
-
-    /* напоминание перед парой: за сколько — зависит от того, где человек */
-    const lead = G.leadFor(u);
     const today = S ? T.dayBlocks(S, now.iso) : [];
-    if (lead > 0) {
-      for (const g of today) {
-        const t = g.rs - lead;
-        /* окно шире пяти минут: место могло смениться на «дома» уже после старта окна */
-        const windowEnd = u.geo ? g.rs - 2 : t + 5;
-        if (now.min >= t && now.min < windowEnd && now.min < g.rs &&
-            await db.markSent(env, u.chat_id, `${now.iso}:r:${g.rs}`)) {
-          await sendClassCard(env, u.chat_id, u, g, now.iso, { kind: "soon", mins: g.rs - now.min });
-          budget -= 2;
-        }
+    const on = u.lead_min > 0;                       // напоминания включены
+
+    /* 01:00 — чат чистый, ни одного сообщения */
+    if (at(now, WIPE) && await db.markSent(env, u.chat_id, `${now.iso}:wipe`)) {
+      budget -= await M.wipe(env, u.chat_id);
+      continue;
+    }
+
+    /* 08:00 — доброе утро: расписание дня и то, что сдавать в ближайшие два дня */
+    if (on && at(now, MORNING) && await db.markSent(env, u.chat_id, `${now.iso}:morning`)) {
+      await morning(env, u, S, today, now);
+      budget -= 4;
+    }
+
+    /* напоминание перед парой: первая — за 40 минут, дальше — по окну перед ней */
+    if (on) for (let i = 0; i < today.length; i++) {
+      const g = today[i], lead = T.leadOf(today, i), t = g.rs - lead;
+      if (now.min >= t && now.min < t + 5 && now.min < g.rs &&
+          await db.markSent(env, u.chat_id, `${now.iso}:r:${g.rs}`)) {
+        await M.dropKind(env, u.chat_id, "day");     // расписание дня уступает место парам
+        await sendClassCard(env, u.chat_id, u, g, now.iso, { kind: "soon", mins: g.rs - now.min });
+        budget -= 3;
       }
     }
 
-    /* геолокация включена, а где человек — неизвестно: один вопрос перед первой парой дня */
-    if (u.geo && u.lead_min > 0 && today.length && G.placeOf(u) === null) {
-      const first = today.find(g => !g.it.online);
-      const askAt = first ? first.rs - (u.lead_home || 60) - 15 : -1;
-      if (first && now.min >= askAt && now.min < askAt + 5 && await db.markSent(env, u.chat_id, `${now.iso}:ask`)) {
-        const L = dict(u.lang === "en" ? "en" : "ru");
-        await post(env, u.chat_id, { kind: "menu", text: L.geo_ask, markup: {
-          keyboard: [[{ text: L.btn_send_loc, request_location: true }]], resize_keyboard: true, one_time_keyboard: true } });
-        budget -= 2;
+    /* последняя пара закончилась: убираем напоминания и показываем все дедлайны заново */
+    if (on && today.length) {
+      const end = today[today.length - 1].re;
+      if (now.min >= end && now.min < end + 5 && await db.markSent(env, u.chat_id, `${now.iso}:evening`)) {
+        await M.dropKind(env, u.chat_id, "class");
+        await evening(env, u);
+        budget -= 3;
       }
     }
+
     /* карточка прошлой пары сама переписывается, когда пара началась или закончилась */
     await M.tidy(env, u.chat_id, load).catch(() => {});
   }
@@ -67,6 +74,42 @@ export async function runCron(env, source = "cron") {
   /* раз в сутки чистим старые отметки */
   if (now.min >= 180 && now.min < 190 && await db.markSent(env, 0, `${now.iso}:cleanup`))
     await db.cleanupSent(env, now.ms - 3 * 86400000);
+}
+
+const WIPE = 60, MORNING = 8 * 60;                   // 01:00 и 08:00 по Астане
+const at = (now, minute) => now.min >= minute && now.min < minute + 5;
+
+/* утро: картинка с расписанием дня (с окнами) и ближайшие дедлайны */
+async function morning(env, u, S, today, now) {
+  const lang = u.lang === "en" ? "en" : "ru", L = dict(lang), off = +(env.TZ_OFFSET_MIN || 300);
+
+  if (!today.length) {
+    await post(env, u.chat_id, { kind: "day", text: L.morning_none, markup: menuKeyboard(env, u) });
+  } else {
+    const span = `${T.hhmm(today[0].rs)} – ${T.hhmm(today[today.length - 1].re)}`;
+    const caption = `${L.morning}\n\n📅 <b>${L.days[T.KEYS.indexOf(T.keyOf(now.iso))]}, ${X.fmtDate(now.iso, lang)}</b> · ${span}`;
+    const card = await dayPhoto(env, u, now.iso);
+    await post(env, u.chat_id, card
+      ? { kind: "day", photo: card, text: caption, markup: menuKeyboard(env, u) }
+      : { kind: "day", text: `${L.morning}\n\n${X.dayText(S, now.iso, now, lang)}`, markup: menuKeyboard(env, u) });
+  }
+
+  if (!u.cal_url) return;
+  const soon = (await moodle.upcoming(env, u.chat_id, Date.now(), 20))
+    .filter(d => d.due < Date.now() + 2 * 86400000);
+  await post(env, u.chat_id, { kind: "due", markup: menuKeyboard(env, u), text: soon.length
+    ? `${L.due_soon_head}\n\n${X.deadlinesText(soon, Date.now(), lang, off).split("\n\n").slice(1).join("\n\n")}`
+    : L.due_none_soon });
+}
+
+/* вечер: пары кончились — показываем всё, что впереди */
+async function evening(env, u) {
+  const lang = u.lang === "en" ? "en" : "ru", L = dict(lang), off = +(env.TZ_OFFSET_MIN || 300);
+  const markup = menuKeyboard(env, u);
+  if (!u.cal_url) return post(env, u.chat_id, { kind: "due", text: L.evening, markup });
+  const list = await moodle.upcoming(env, u.chat_id, Date.now(), 20);
+  return post(env, u.chat_id, { kind: "due", markup,
+    text: `${L.evening}\n\n${X.deadlinesText(list, Date.now(), lang, off)}` });
 }
 
 /* новые и перенесённые задания + напоминания о скором дедлайне */
@@ -139,7 +182,7 @@ function compare(S, events, now, off, lang) {
 export async function ensureWebhook(env, force = false) {
   const secret = await webhookSecret(env.TELEGRAM_TOKEN);
   const url = env.PUBLIC_URL + "/tg/webhook";
-  const want = `${url}|${secret.slice(0, 16)}|v4`;
+  const want = `${url}|${secret.slice(0, 16)}|v5`;
   const prev = await db.getMeta(env, "webhook");
   if (!force && prev === want) return { ok: true, cached: true };
 
@@ -150,7 +193,7 @@ export async function ensureWebhook(env, force = false) {
   }
   const r = await tg(env, "setWebhook", {
     url, secret_token: secret, max_connections: 10,
-    allowed_updates: ["message", "edited_message", "callback_query"],
+    allowed_updates: ["message", "callback_query"],
     drop_pending_updates: !force && !prev,
   });
   if (!r.ok) {

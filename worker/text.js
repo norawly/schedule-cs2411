@@ -114,7 +114,7 @@ export const settingsText = (u, owner, lang) => {
   const L = dict(lang);
   return `${L.settings}\n\n` +
     `👤 ${L.s_schedule}: <b>${esc(owner)}</b>\n` +
-    `🔔 ${L.s_remind}: <b>${u.lead_min ? L.s_remind_at(u.lead_min) : L.s_remind_off}</b>\n` +
+    `🔔 ${L.s_remind}: <b>${u.lead_min ? L.s_remind_on : L.s_remind_off}</b>\n` +
     `📚 ${L.s_moodle}: <b>${u.cal_url ? L.s_moodle_on : L.s_moodle_off}</b>\n` +
     `🌐 ${L.s_lang}: <b>${lang === "en" ? "English" : "Русский"}</b>`;
 };

@@ -7,12 +7,10 @@ import * as db from "./db.js";
 import * as M from "./msgs.js";
 import * as moodle from "./moodle.js";
 import { tg } from "./tg.js";
-import * as G from "./geo.js";
 import { t as dict, subject as subjectName, durIn } from "./i18n.js";
 
-const LEADS = [20, 30, 10, 15, 5, 0];          // по кругу: 20 → 30 → 10 → 15 → 5 → выкл
+/* за сколько напоминать, решает расписание (worker/sched.js: leadOf) — в настройках только вкл/выкл */
 const BARCODE = /^\d{5,8}$/;                   // баркод студента
-const cycle = (list, v) => list[(list.indexOf(v) + 1) % list.length];
 const langOf = u => (u && u.lang === "en") ? "en" : "ru";
 
 /* ---------- данные из статики ---------- */
@@ -95,8 +93,6 @@ export async function sendClassCard(e, chatId, user, g, iso, state, extraRows = 
 
 /* ---------- вход ---------- */
 export async function handleUpdate(e, update) {
-  const edited = update.edited_message;
-  if (edited) return onLiveLocation(e, edited);
   const msg = update.message, cb = update.callback_query;
   const chat = msg ? msg.chat : cb && cb.message && cb.message.chat;
   const from = msg ? msg.from : cb && cb.from;
@@ -115,7 +111,6 @@ export async function handleUpdate(e, update) {
 
   const c = { env: e, chatId: chat.id, from, user, now: T.localNow(e), lang: langOf(user) };
   if (cb) return onCallback(c, cb);
-  if (msg.location && c.user && c.user.status !== "pending") return onLocation(c, msg);
   if (!msg.text) return;
   await onText(c, msg.text.trim());
   /* свои сообщения тоже убираем — чат остаётся чистым */
@@ -162,55 +157,6 @@ async function stranger(c) {
   const { silenced } = await db.guestStrike(c.env, c.chatId);
   if (silenced) return;
   return send(c.env, c.chatId, dict(c.lang).ask_barcode);
-}
-
-/* ---------- геолокация ---------- */
-function locFields(m) {
-  const loc = m.location, at = (m.edit_date || m.date || Math.floor(Date.now() / 1000)) * 1000;
-  const f = { lat: loc.latitude, lon: loc.longitude, loc_at: at };
-  if (loc.live_period && !m.edit_date)
-    f.loc_until = loc.live_period >= 0x7FFFFFFF ? at + 365 * 86400000 : m.date * 1000 + loc.live_period * 1000;
-  return f;
-}
-
-/* разовая точка или начало трансляции: отвечаем, где ты, и возвращаем меню */
-async function onLocation(c, msg) {
-  const L = dict(c.lang);
-  const f = locFields(msg);
-  if (!msg.location.live_period) f.loc_until = null;
-  await db.updateUser(c.env, c.chatId, f);
-  Object.assign(c.user, f);
-  const place = G.placeOf(c.user);
-  const d = G.distance({ lat: f.lat, lon: f.lon }, G.campusOf(c.user));
-  const name = place === "campus" ? L.place_campus : L.place_away;
-  await post(c.env, c.chatId, { kind: "menu", text: L.geo_got(name, d) +
-    (c.user.geo ? "" : `\n\n${L.s_geo}: <b>${L.s_geo_off}</b> — ⚙️`), markup: menuKeyboard(c.env, c.user) });
-  if (place !== "campus" && c.user.campus_lat == null)
-    await post(c.env, c.chatId, { text: L.campus_wrong, markup: { inline_keyboard: [[{ text: L.btn_set_campus, callback_data: "s:camp" }]] } });
-}
-
-/* обновления live-трансляции: молча запоминаем точку, не чаще раза в минуту */
-async function onLiveLocation(e, m) {
-  if (!m.chat || m.chat.type !== "private") return;
-  const user = await db.getUser(e, m.chat.id);
-  if (!user || !["admin", "approved"].includes(user.status)) return;
-  if (!m.location) return db.updateUser(e, m.chat.id, { loc_until: Date.now() });   // трансляцию остановили
-  if (user.loc_at && Date.now() - user.loc_at < 60000) return;
-  return db.updateUser(e, m.chat.id, locFields(m));
-}
-
-async function geoScreen(c, edit) {
-  const L = dict(c.lang), u = c.user;
-  const place = G.placeOf(u);
-  const now = place === "campus" ? L.place_campus : place === "away" ? L.place_away : L.place_unknown;
-  const text = `${L.geo_title}\n\n${L.geo_how}\n\n${L.geo_now(now)}`;
-  const rows = [[{ text: u.geo ? L.btn_geo_off : L.btn_geo_on, callback_data: "s:geoon" }]];
-  if (u.geo) rows.push(
-    [{ text: L.geo_home(u.lead_home || 60), callback_data: "s:lh" }],
-    [{ text: L.geo_campus(u.lead_campus || 5), callback_data: "s:lc" }]);
-  if (u.lat != null) rows.push([{ text: L.btn_set_campus, callback_data: "s:camp" }]);
-  rows.push([{ text: L.btn_back, callback_data: "s:open" }]);
-  return show(c, text, { inline_keyboard: rows }, edit);
 }
 
 /* ---------- регистрация ---------- */
@@ -342,6 +288,12 @@ const preview = c => nextCard(c.env, c.chatId, c.user, c.now,
   { kind: "soon", mins: c.user.lead_min || 20 });
 
 /* весь сегодняшний день — одной картинкой */
+export async function dayPhoto(e, user, iso) {
+  const cards = await loadDayCards(e);
+  const file = (cards.cards || {})[`${user.person}|${T.keyOf(iso)}|${user.lang === "en" ? "en" : "ru"}`];
+  return file ? `${e.PUBLIC_URL}/map/days/${file}?v=${cards.version}` : null;
+}
+
 async function todayCard(c, iso) {
   const L = dict(c.lang);
   iso = iso || c.now.iso;
@@ -350,8 +302,7 @@ async function todayCard(c, iso) {
   const key = T.keyOf(iso), list = T.dayBlocks(S, iso);
   if (!list.length) return show(c, X.dayText(S, iso, c.now, c.lang), null, false);
 
-  const cards = await loadDayCards(c.env);
-  const file = (cards.cards || {})[`${c.user.person}|${key}|${c.lang}`];
+  const photo = await dayPhoto(c.env, c.user, iso);
   const day = L.days[T.KEYS.indexOf(key)];
   const now = T.nextClass(S, c.now);
   const hint = (now && now.iso === iso)
@@ -359,9 +310,8 @@ async function todayCard(c, iso) {
     : "";
   const caption = `📅 <b>${day}, ${X.fmtDate(iso, c.lang)}</b>` + (hint ? `\n${hint}` : "");
   const markup = { inline_keyboard: [[{ text: L.btn_back, callback_data: "s:open" }]] };
-  if (!file) return show(c, X.dayText(S, iso, c.now, c.lang), markup, false);
-  return post(c.env, c.chatId, { photo: `${c.env.PUBLIC_URL}/map/days/${file}?v=${cards.version}`,
-                                 text: caption, markup });
+  if (!photo) return show(c, X.dayText(S, iso, c.now, c.lang), markup, false);
+  return post(c.env, c.chatId, { photo, text: caption, markup });
 }
 
 async function showDay(c, iso, edit) {
@@ -423,23 +373,12 @@ async function saveCalendar(c, url) {
   return deadlines(c);
 }
 
-async function deadlines(c, which, edit) {
+async function deadlines(c, _which, edit) {
   const L = dict(c.lang), off = +(c.env.TZ_OFFSET_MIN || 300);
   if (!c.user.cal_url) return show(c, L.cal_how, { inline_keyboard: [[{ text: L.btn_back, callback_data: "s:open" }]] }, edit);
   const list = await moodle.upcoming(c.env, c.chatId, Date.now(), 20);
-
-  if (which !== undefined && which !== "" && list[+which]) {   // текст задания под кнопкой
-    const d = list[+which];
-    const body = (d.descr || "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
-    const text = `📌 <b>${X.esc(d.title)}</b>\n<i>${X.esc(d.subject || "")}</i>\n` +
-      `🕐 ${X.dueIn(d.due, Date.now(), c.lang)}\n\n${X.esc(body.slice(0, 2500)) || "—"}`;
-    return show(c, text, { inline_keyboard: [[{ text: L.btn_back, callback_data: "dl" }]] }, edit);
-  }
-
-  const rows = list.slice(0, 8).map((d, i) =>
-    [{ text: `📄 ${d.title.replace(/ is due$/i, "")} · ${d.subject || ""}`.slice(0, 60), callback_data: "dl:" + i }]);
-  rows.push([{ text: L.btn_back, callback_data: "s:open" }, { text: L.btn_cal_off, callback_data: "s:caloff" }]);
-  return show(c, X.deadlinesText(list, Date.now(), c.lang, off), { inline_keyboard: rows }, edit);
+  return show(c, X.deadlinesText(list, Date.now(), c.lang, off),
+    { inline_keyboard: [[{ text: L.btn_back, callback_data: "s:open" }]] }, edit);
 }
 
 /* ---------- настройки ---------- */
@@ -447,28 +386,19 @@ async function settings(c, what, edit) {
   const u = c.user;
   const L0 = dict(c.lang);
   if (what === "today") { await todayCard(c); return ""; }
-  if (what === "cal") { await deadlines(c, undefined, edit); return ""; }
+  if (what === "cal") {
+    if (!u.cal_url) { await show(c, L0.cal_how, { inline_keyboard: [[{ text: L0.btn_back, callback_data: "s:open" }]] }, edit); return ""; }
+    await show(c, `${L0.s_moodle}: <b>${L0.s_moodle_on}</b>\n\n${L0.cal_note}`, { inline_keyboard: [
+      [{ text: L0.menu_deadlines, callback_data: "dl" }],
+      [{ text: L0.btn_cal_off, callback_data: "s:caloff" }],
+      [{ text: L0.btn_back, callback_data: "s:open" }]] }, edit);
+    return "";
+  }
   if (what === "caloff") {
     await db.updateUser(c.env, c.chatId, { cal_url: null, cal_hash: null });
     await c.env.DB.prepare("DELETE FROM deadlines WHERE chat_id = ?").bind(c.chatId).run();
     u.cal_url = null;
     await show(c, L0.cal_off, { inline_keyboard: [[{ text: L0.btn_back, callback_data: "s:open" }]] }, edit);
-    return "";
-  }
-  if (what === "geo") { await geoScreen(c, edit); return ""; }
-  if (what === "geoon" || what === "lh" || what === "lc") {
-    if (what === "geoon") u.geo = u.geo ? 0 : 1;
-    if (what === "lh") u.lead_home = cycle([60, 90, 120, 45, 30], u.lead_home || 60);
-    if (what === "lc") u.lead_campus = cycle([5, 10, 15, 3], u.lead_campus || 5);
-    await db.updateUser(c.env, c.chatId, { geo: u.geo, lead_home: u.lead_home || 60, lead_campus: u.lead_campus || 5 });
-    await geoScreen(c, edit);
-    return "";
-  }
-  if (what === "camp") {
-    if (u.lat == null) return "📍?";
-    await db.updateUser(c.env, c.chatId, { campus_lat: u.lat, campus_lon: u.lon });
-    u.campus_lat = u.lat; u.campus_lon = u.lon;
-    await show(c, L0.campus_saved, { inline_keyboard: [[{ text: L0.btn_geo, callback_data: "s:geo" }]] }, edit);
     return "";
   }
   if (what === "person") {
@@ -478,9 +408,9 @@ async function settings(c, what, edit) {
 
   let toast = "";
   if (what === "lead") {
-    u.lead_min = cycle(LEADS, u.lead_min);
+    u.lead_min = u.lead_min > 0 ? 0 : 20;
     await db.updateUser(c.env, c.chatId, { lead_min: u.lead_min });
-    toast = u.lead_min ? dict(c.lang).s_remind_at(u.lead_min) : dict(c.lang).s_remind_off;
+    toast = u.lead_min ? dict(c.lang).s_remind_on : dict(c.lang).s_remind_off;
   }
   if (what === "lang") {
     c.lang = u.lang = c.lang === "en" ? "ru" : "en";
@@ -494,9 +424,9 @@ async function settings(c, what, edit) {
   const people = await loadPeople(c.env);
   const owner = (people.find(p => p.slug === u.person) || {}).owner || u.person;
   await show(c, X.settingsText(u, owner, c.lang), { inline_keyboard: [
-    [{ text: "🔔 " + (u.lead_min ? L.s_remind_at(u.lead_min) : L.s_remind_off), callback_data: "s:lead" }],
+    [{ text: "🔔 " + (u.lead_min ? L.s_remind_on : L.s_remind_off), callback_data: "s:lead" }],
     [{ text: L.btn_today, callback_data: "s:today" }, { text: L.btn_preview, callback_data: "t" }],
-    [{ text: L.btn_moodle, callback_data: "s:cal" }, { text: L.btn_geo, callback_data: "s:geo" }],
+    [{ text: L.btn_moodle, callback_data: "s:cal" }],
     [{ text: L.btn_lang, callback_data: "s:lang" }, { text: L.btn_barcode, callback_data: "s:person" }],
   ] }, edit);
   return toast;
