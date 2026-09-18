@@ -10,6 +10,7 @@ import { tg } from "./tg.js";
 import { t as dict, subject as subjectName, durIn } from "./i18n.js";
 
 /* за сколько напоминать, решает расписание (worker/sched.js: leadOf) — в настройках только вкл/выкл */
+const RATE = 7;                                // обращений в минуту с одного аккаунта
 const BARCODE = /^\d{5,8}$/;                   // баркод студента
 const langOf = u => (u && u.lang === "en") ? "en" : "ru";
 
@@ -98,10 +99,17 @@ export async function handleUpdate(e, update) {
   const from = msg ? msg.from : cb && cb.from;
   if (!chat || chat.type !== "private" || !from || from.is_bot) return;
 
-  /* защита от спама: не больше N действий в минуту с одного аккаунта */
+  /* защита от спама: не больше RATE действий в минуту с одного аккаунта.
+     Про превышение сообщаем прямо, но не чаще раза в минуту — иначе ответы сами станут спамом. */
   if (e.RL) {
     const { success } = await e.RL.limit({ key: "chat:" + chat.id });
-    if (!success) return;
+    if (!success) {
+      const notice = !e.RLN || (await e.RLN.limit({ key: "warn:" + chat.id })).success;
+      const known = await db.getUser(e, chat.id);
+      if (notice && known && known.status !== "banned")
+        await post(e, chat.id, { text: dict(langOf(known)).too_fast(RATE) });
+      return;
+    }
   }
 
   const user = await db.getUser(e, chat.id);

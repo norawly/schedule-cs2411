@@ -30,9 +30,10 @@
       "migrations_dir": "migrations"
     }
   ],
-  // антиспам: не больше 20 действий в минуту с одного аккаунта
+  // антиспам: 7 действий в минуту с аккаунта; RLN — не чаще одного предупреждения в минуту
   "ratelimits": [
-    { "name": "RL", "namespace_id": "2411", "simple": { "limit": 20, "period": 60 } }
+    { "name": "RL",  "namespace_id": "2411", "simple": { "limit": 7, "period": 60 } },
+    { "name": "RLN", "namespace_id": "2412", "simple": { "limit": 1, "period": 60 } }
   ],
   "vars": {
     "PUBLIC_URL": "https://s.zhengisbay.com",

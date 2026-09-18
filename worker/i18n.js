@@ -87,6 +87,8 @@ const DICT = {
     new_deadline: "🆕 <b>Новое задание</b>",
     moved_deadline: "♻️ <b>Дедлайн перенесли</b>",
     due_soon: t => `⏳ <b>Дедлайн через ${t}</b>`,
+    too_fast: n => `⏳ <b>Превышен лимит запросов</b>\n\nДопустимо ${n} обращений в минуту. ` +
+      "Бот временно не отвечает — подождите минуту и повторите.",
     morning: "☀️ <b>Доброе утро!</b>",
     morning_none: "☀️ <b>Доброе утро!</b>\n\nСегодня пар нет — отдыхай.",
     due_soon_head: "📚 <b>Сдать в ближайшие два дня</b>",
@@ -175,6 +177,8 @@ const DICT = {
     new_deadline: "🆕 <b>New assignment</b>",
     moved_deadline: "♻️ <b>Deadline moved</b>",
     due_soon: t => `⏳ <b>Deadline in ${t}</b>`,
+    too_fast: n => `⏳ <b>Rate limit exceeded</b>\n\nThe limit is ${n} requests per minute. ` +
+      "The bot is paused for you — please wait a minute and try again.",
     morning: "☀️ <b>Good morning!</b>",
     morning_none: "☀️ <b>Good morning!</b>\n\nNo classes today — enjoy.",
     due_soon_head: "📚 <b>Due in the next two days</b>",
