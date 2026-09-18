@@ -27,6 +27,7 @@ const resolve = (slug, seen = new Set()) => {
   const base = resolve(S.aliasOf, seen.add(slug));
   const merged = { ...base, ...S };
   delete merged.aliasOf;
+  if (!S.private) delete merged.private;      // «закрыто» не наследуется по aliasOf
   return merged;
 };
 
@@ -37,7 +38,7 @@ for (const slug of order) {
   if (!S.days) throw new Error(`${slug}: нет расписания (days)`);
   fs.writeFileSync(path.join(PUB, slug, "schedule.json"), JSON.stringify(S));
   people.push({ slug, owner: S.owner || slug, group: S.group || "",
-                barcode: String(S.barcode || ""), hidden: !!S.hidden, private: !!S.private });
+                barcode: String(S.barcode || ""), hidden: !!(S.hidden || S.private), private: !!S.private });
 }
 
 fs.writeFileSync(path.join(PUB, "people.json"), JSON.stringify(people, null, 2) + "\n");
